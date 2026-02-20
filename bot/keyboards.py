@@ -40,9 +40,8 @@ def get_main_menu(get_text: GetTextFunc) -> ReplyKeyboardMarkup:
 
     # Строим сетку кнопок
     builder.row(KeyboardButton(text=btn_add), KeyboardButton(text=btn_sources))
-    builder.row(KeyboardButton(text=btn_feed))
-    builder.row(KeyboardButton(text=btn_settings), KeyboardButton(text=btn_help))
-    builder.row(KeyboardButton(text=btn_refresh))
+    builder.row(KeyboardButton(text=btn_feed), KeyboardButton(text=btn_help))
+    builder.row(KeyboardButton(text=btn_settings), KeyboardButton(text=btn_refresh))
 
     # .as_markup() ОБЯЗАТЕЛЬНО должен быть с resize_keyboard=True
     return builder.as_markup(
@@ -200,16 +199,19 @@ def get_language_menu(get_text: GetTextFunc) -> InlineKeyboardMarkup:
     """Инлайн клавиатура для выбора языка"""
     builder = InlineKeyboardBuilder()
     
-    # Используем set_lang: префикс для callback
+    # Используем локализацию для текстов кнопок
+    ru_text = get_text(['keyboards', 'language_menu', 'ru'])
+    en_text = get_text(['keyboards', 'language_menu', 'en'])
+    back_text = get_text(['keyboards', 'language_menu', 'back'])
+    
     builder.row(
-        InlineKeyboardButton(text="🇷🇺 Русский", callback_data="set_lang:ru"),
-        InlineKeyboardButton(text="🇬🇧 English", callback_data="set_lang:en")
+        InlineKeyboardButton(text=ru_text, callback_data="set_lang:ru"),
+        InlineKeyboardButton(text=en_text, callback_data="set_lang:en")
     )
     
-    # Кнопка назад
     builder.row(
         InlineKeyboardButton(
-            text=get_text(['keyboards', 'language_menu', 'back']), 
+            text=back_text, 
             callback_data="back_to_settings"
         )
     )

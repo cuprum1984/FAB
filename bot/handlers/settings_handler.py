@@ -32,37 +32,27 @@ from bot.keyboards import (
     get_confirm_delete_kb,
     GetTextFunc
 )
+import core.utils.i18n
 from core.redis_client import redis_client
 from core.utils.i18n import create_i18n
+import bot.middlewares.i18n
+
+
 
 logger = logging.getLogger(__name__)
+logger.info(f"core.utils.i18n path: {core.utils.i18n.__file__}")
+logger.info(f"bot.middlewares.i18n path: {bot.middlewares.i18n.__file__}")
 router = Router(name="settings")
 
 # Константы для текстов кнопок (без локализации в декораторах!)
 SETTINGS_BUTTONS = ["⚙️ Настройки", "⚙️ Settings"]
-LANGUAGE_BUTTON = "🌐 Язык / Language"
-DELETE_DATA_BUTTON = "🗑️ Удалить мои данные"
-BACK_BUTTON = "← Назад"
+# Все остальные кнопки используют локализованный текст
 
-
-@router.callback_query()
-async def debug_all_callbacks(callback: CallbackQuery):
-    """ОТЛАДКА: ловим ВСЕ callback'и"""
-    logger.info("=" * 50)
-    logger.info(f"🔍 ПОЛУЧЕН CALLBACK: {callback.data}")
-    logger.info(f"   From user: {callback.from_user.id}")
-    logger.info(f"   Message ID: {callback.message.message_id}")
-    logger.info("=" * 50)
-    # НЕ отвечаем, просто логируем
-
-
-# bot/handlers/settings_handler.py - добавь после debug_all_callbacks
-
-@router.callback_query(F.data.in_(["lang_ru", "lang_en"]))
-async def test_lang_handler(callback: CallbackQuery):
-    """ТЕСТОВЫЙ хендлер для языка"""
-    logger.info(f"✅ ТЕСТОВЫЙ ХЕНДЛЕР СРАБОТАЛ! data={callback.data}")
-    await callback.answer(f"Выбрано: {callback.data}", show_alert=True)
+@router.callback_query(~F.data.startswith("set_lang:") & ~(F.data == "back_to_settings"))  # Исключаем set_lang и back_to_settings из дебага
+async def debug_callbacks(callback: CallbackQuery):
+    """Временный дебаг - логирует все callbacks кроме set_lang и back_to_settings"""
+    logger.info(f"🔥 CALLBACK: {callback.data}")
+    # НЕ отвечаем, чтобы не блокировать другие хендлеры
 
 
 
@@ -93,77 +83,59 @@ async def cmd_settings(message: Message, state: FSMContext, session: AsyncSessio
     await state.set_state(Settings.main)
 
 
-# ========== ЯЗЫК ==========
+# ========== ЕДИНЫЙ ХЕНДЛЕР МЕНЮ НАСТРОЕК ==========
+# В aiogram при return следующий хендлер не вызывается, поэтому все кнопки обрабатываем в одном месте
 
-@router.message(Settings.main, F.text == LANGUAGE_BUTTON)
-async def settings_language(message: Message, state: FSMContext, get_text: GetTextFunc):
-    """Выбор языка"""
-    await message.answer(
-        get_text(['settings', 'language_prompt']),
-        parse_mode="HTML",
-        reply_markup=get_language_menu(get_text)  # ← здесь создается клавиатура с set_lang:
-    )
-    await state.set_state(Settings.language)
-
-
-# ✅ ВАЖНО: хендлер должен ловить ТОТ ЖЕ ПРЕФИКС, что и в клавиатуре!
-@router.callback_query(Settings.language, F.data.startswith("set_lang:"))  # ← ИСПРАВЛЕНО!
-async def process_language_choice(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
-    """Обработка выбора языка"""
-    lang = callback.data.split(":")[1]
-    user_id = callback.from_user.id
+@router.message(Settings.main)
+async def settings_main_menu(message: Message, state: FSMContext, get_text: GetTextFunc):
+    """Обработка всех кнопок меню настроек: Назад, Язык, Удаление данных"""
+    from core.utils.i18n import create_i18n
     
-    logger.info(f"🌐 Смена языка для {user_id} на {lang}")
+    i18n_ru = create_i18n('ru')
+    i18n_en = create_i18n('en')
     
-    try:
-        # Сохраняем в БД
-        stmt = select(UserPreferences).where(UserPreferences.user_id == user_id)
-        result = await session.execute(stmt)
-        prefs = result.scalar_one_or_none()
-        
-        if prefs:
-            prefs.language = lang
-        else:
-            prefs = UserPreferences(user_id=user_id, language=lang)
-            session.add(prefs)
-        
-        await session.commit()
-        
-        # Создаем новую локализацию
-        from core.utils.i18n import create_i18n
-        new_i18n = create_i18n(lang)
-        new_get_text = new_i18n.get
-        
-        # Название языка
-        lang_name = new_get_text(['settings', f'language_{lang}'])
-        
-        # Обновляем сообщение
-        await callback.message.edit_text(
-            new_get_text(['settings', 'language_changed'], lang=lang_name),
-            parse_mode="HTML"
-        )
-        
-        # Отправляем новое меню настроек
-        await callback.message.answer(
-            new_get_text(['settings', 'title'], lang=lang_name),
+    back_ru = i18n_ru.get(['keyboards', 'settings_menu', 'back'])
+    back_en = i18n_en.get(['keyboards', 'settings_menu', 'back'])
+    lang_ru = i18n_ru.get(['keyboards', 'settings_menu', 'language'])
+    lang_en = i18n_en.get(['keyboards', 'settings_menu', 'language'])
+    delete_ru = i18n_ru.get(['keyboards', 'settings_menu', 'delete_data'])
+    delete_en = i18n_en.get(['keyboards', 'settings_menu', 'delete_data'])
+    
+    text = message.text
+    
+    # 1. Кнопка "Назад" → главное меню
+    if text in [back_ru, back_en]:
+        logger.info(f"✅ Кнопка 'Назад' распознана, возвращаемся в главное меню")
+        await message.answer(
+            get_text(['common', 'menu']),
             parse_mode="HTML",
-            reply_markup=get_settings_menu(new_get_text)
+            reply_markup=get_main_menu(get_text)
         )
-        
-        # Отправляем обновленное главное меню
-        await callback.message.answer(
-            new_get_text(['common', 'menu']),
-            parse_mode="HTML",
-            reply_markup=get_main_menu(new_get_text)
-        )
-        
         await state.clear()
-        await callback.answer()
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка смены языка: {e}", exc_info=True)
-        await callback.answer("❌ Ошибка", show_alert=True)
-
+        return
+    
+    # 2. Кнопка "Язык" → выбор языка
+    if text in [lang_ru, lang_en]:
+        await message.answer(
+            get_text(['settings', 'language_prompt']),
+            parse_mode="HTML",
+            reply_markup=get_language_menu(get_text)
+        )
+        await state.set_state(Settings.language)
+        return
+    
+    # 3. Кнопка "Удалить данные" → подтверждение
+    if text in [delete_ru, delete_en]:
+        await message.answer(
+            get_text(['settings', 'delete_warning']),
+            parse_mode="HTML",
+            reply_markup=get_confirm_delete_kb(get_text)
+        )
+        await state.set_state(Settings.confirm_delete)
+        return
+    
+    # Неизвестная кнопка — показываем меню настроек снова
+    logger.debug(f"Неизвестный текст в настройках: '{text}'")
 
 
 # ✅ ЕДИНСТВЕННЫЙ хендлер для смены языка
@@ -183,11 +155,14 @@ async def process_language_callback(callback: CallbackQuery, state: FSMContext, 
         
         if prefs:
             prefs.language = lang
+            logger.info(f"✅ Обновлен язык пользователя {user_id}: {prefs.language} -> {lang}")
         else:
             prefs = UserPreferences(user_id=user_id, language=lang)
             session.add(prefs)
+            logger.info(f"✅ Созданы настройки пользователя {user_id} с языком: {lang}")
         
         await session.commit()
+        logger.info(f"✅ Язык {lang} успешно сохранен в БД для пользователя {user_id}")
         
         # 2. Создаем новую локализацию для ответа
         i18n = create_i18n(lang)
@@ -198,37 +173,46 @@ async def process_language_callback(callback: CallbackQuery, state: FSMContext, 
         
         await callback.answer(get_text(['settings', 'language_changed'], lang=lang_name))
         
-        # 4. Обновляем сообщение настроек
-        await callback.message.edit_text(
+        # 4. Устанавливаем состояние Settings.main СРАЗУ, чтобы кнопки работали
+        await state.set_state(Settings.main)
+        
+        # 5. Обновляем сообщение с выбором языка (если оно есть)
+        try:
+            await callback.message.edit_text(
+                get_text(['settings', 'language_changed'], lang=lang_name),
+                parse_mode="HTML",
+                reply_markup=get_back_to_settings_kb(get_text)
+            )
+            logger.info(f"✅ Сообщение с выбором языка обновлено, добавлена кнопка 'Назад'")
+        except Exception as e:
+            # Если не удалось обновить (сообщение уже изменено), просто отвечаем
+            logger.warning(f"⚠️ Не удалось обновить сообщение с выбором языка: {e}")
+            # Отправляем новое сообщение с кнопкой "Назад"
+            await callback.message.answer(
+                get_text(['settings', 'language_changed'], lang=lang_name),
+                parse_mode="HTML",
+                reply_markup=get_back_to_settings_kb(get_text)
+            )
+        
+        # 6. Отправляем новое меню настроек
+        await callback.message.answer(
             get_text(['settings', 'title'], lang=lang_name),
             parse_mode="HTML",
             reply_markup=get_settings_menu(get_text)
         )
         
-        # 5. Отправляем новое сообщение с главным меню (обновленные кнопки)
+        # 7. Отправляем обновленное главное меню
         await callback.message.answer(
             get_text(['common', 'menu']),
             parse_mode="HTML",
             reply_markup=get_main_menu(get_text)
         )
         
-        # 6. Сбрасываем состояние
-        await state.clear()
-        
     except Exception as e:
         logger.error(f"❌ Ошибка при смене языка: {e}", exc_info=True)
         await callback.answer("❌ Ошибка при смене языка", show_alert=True)
 
 
-@router.message(Settings.main, F.text == DELETE_DATA_BUTTON)
-async def settings_delete_data(message: Message, state: FSMContext, get_text: GetTextFunc):
-    """Запрос на удаление данных"""
-    await message.answer(
-        get_text(['settings', 'delete_warning']),
-        parse_mode="HTML",
-        reply_markup=get_confirm_delete_kb(get_text)
-    )
-    await state.set_state(Settings.confirm_delete)
 
 
 @router.callback_query(Settings.confirm_delete, F.data == "confirm_delete")
@@ -306,13 +290,24 @@ async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, sessio
 
 
 @router.callback_query(Settings.confirm_delete, F.data == "cancel_delete")
-async def cancel_delete_data(callback: CallbackQuery, state: FSMContext, get_text: GetTextFunc):
+async def cancel_delete_data(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: GetTextFunc):
     """Отмена удаления данных"""
+    user_id = callback.from_user.id
+    
+    # Получаем текущий язык пользователя из БД
+    stmt = select(UserPreferences).where(UserPreferences.user_id == user_id)
+    result = await session.execute(stmt)
+    prefs = result.scalar_one_or_none()
+    
+    # Определяем язык для отображения
+    current_lang = prefs.language if prefs else 'en'
+    lang_display = get_text(['settings', 'language_ru']) if current_lang == "ru" else get_text(['settings', 'language_en'])
+    
     await callback.message.edit_text(
         get_text(['settings', 'delete_cancelled'])
     )
     await callback.message.answer(
-        get_text(['settings', 'title'], lang=get_text(['settings', 'language_en'])),
+        get_text(['settings', 'title'], lang=lang_display),
         parse_mode="HTML",
         reply_markup=get_settings_menu(get_text)
     )
@@ -321,11 +316,34 @@ async def cancel_delete_data(callback: CallbackQuery, state: FSMContext, get_tex
 
 
 @router.callback_query(F.data == "back_to_settings")
-async def back_to_settings(callback: CallbackQuery, state: FSMContext, get_text: GetTextFunc):
+async def back_to_settings(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: GetTextFunc):
     """Вернуться в меню настроек"""
-    await callback.message.delete()
+    user_id = callback.from_user.id
+    
+    logger.info(f"🔙 Возврат в настройки для пользователя {user_id}")
+    
+    # Получаем текущий язык пользователя из БД
+    stmt = select(UserPreferences).where(UserPreferences.user_id == user_id)
+    result = await session.execute(stmt)
+    prefs = result.scalar_one_or_none()
+    
+    # Определяем язык для отображения
+    current_lang = prefs.language if prefs else 'en'
+    
+    # Создаем локализацию с правильным языком
+    from core.utils.i18n import create_i18n
+    i18n = create_i18n(current_lang)
+    get_text = i18n.get
+    
+    lang_display = get_text(['settings', 'language_ru']) if current_lang == "ru" else get_text(['settings', 'language_en'])
+    
+    try:
+        await callback.message.delete()
+    except Exception as e:
+        logger.warning(f"Не удалось удалить сообщение: {e}")
+    
     await callback.message.answer(
-        get_text(['settings', 'title'], lang=get_text(['settings', 'language_en'])),
+        get_text(['settings', 'title'], lang=lang_display),
         parse_mode="HTML",
         reply_markup=get_settings_menu(get_text)
     )
@@ -333,12 +351,4 @@ async def back_to_settings(callback: CallbackQuery, state: FSMContext, get_text:
     await callback.answer()
 
 
-@router.message(Settings.main, F.text == BACK_BUTTON)
-async def settings_back_to_main(message: Message, state: FSMContext, get_text: GetTextFunc):
-    """Назад в главное меню"""
-    await message.answer(
-        get_text(['common', 'menu']),
-        parse_mode="HTML",
-        reply_markup=get_main_menu(get_text)
-    )
-    await state.clear()
+

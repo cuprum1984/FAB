@@ -165,6 +165,8 @@ MESSAGES = {
         "groups_found": "<b>👥 Manage groups</b>\n\n"
                         "Groups found: <b>{count}</b>\n\n"
                         "Choose a group to manage:",
+        "select_from_list": "❌ Please select a group from the list above.",
+        "no_title": "No title",
         "group_info": "<b>👥 Managing group</b>\n\n"
                       "<b>📛 Name:</b> {name}\n"
                       "<b>🆔 ID:</b> <code>{chat_id}</code>\n"
@@ -268,6 +270,9 @@ MESSAGES = {
                                 "Enter a channel link, for example:\n"
                                 "https://youtube.com/@TheBrainDit",
         "youtube_checking": "<b>🔍 Checking YouTube channel...</b>",
+        "youtube_blocked": "<b>❌ YouTube channel blocked</b>\n\n"
+                           "Reason: {reason}\n\n"
+                           "Please use a different channel.",
         "youtube_retry": "⚠️ First attempt failed for @{username}, trying again in 3 seconds...",
         "youtube_failed": "<b>❌ Could not get channel data</b>\n\n"
                           "⏳ <i>YouTube may be slow on first request.\n"
@@ -300,6 +305,14 @@ MESSAGES = {
         "add_saving": "✅ Channel found!\n"
                       "📥 Last post ID: {post_id}\n\n"
                       "⏳ Saving...",
+        "add_saving_telegram": "✅ Telegram channel found!\n"
+                               "📥 Saving channel @{username}\n"
+                               "📝 Last post ID: {post_id}\n\n"
+                               "⏳ Processing...",
+        "add_saving_youtube": "✅ YouTube channel found!\n"
+                              "📥 Saving channel @{username}\n"
+                              "📝 Last video ID: {video_id}\n\n"
+                              "⏳ Processing...",
         "add_saved": "📌 Now choose a group/topic to send the last post to:",
         
         # Destination choice
@@ -335,6 +348,15 @@ MESSAGES = {
                       "<b>👥 Total groups:</b> {groups}\n\n"
                       "<b>🔧 Management:</b> Select a source to manage",
         "list_page_empty": "<i>No sources on this page</i>\n\n",
+        "list_closed": "✅ Source list closed",
+        
+        # Errors
+        "error_no_type": "❌ Error: source type not specified",
+        "error_no_username": "❌ Error: channel username not specified",
+        "error_no_channel_id": "❌ Error: channel ID not specified",
+        "error_no_groups": "❌ Error: no available groups",
+        "error_no_groups_short": "❌ No active groups",
+        "error_general": "❌ An error occurred: {error}",
         
         # Delete source
         "delete_not_found": "❌ Subscription not found",
