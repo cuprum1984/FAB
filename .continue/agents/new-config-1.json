@@ -1,0 +1,26 @@
+{
+  "models": [
+    {
+      "title": "DeepSeek V3 (OpenRouter)",
+      "provider": "openai",
+      "model": "deepseek/deepseek-v3",
+      "apiKey": "sk-or-v1-ваш_ключ_от_openrouter.ai", 
+      "apiBase": "https://openrouter.ai/api/v1"
+    },
+    {
+      "title": "Mistral Small",
+      "provider": "openai",
+      "model": "mistral-small-latest",
+      "apiKey": "mp-ваш_ключ_от_mistral.ai",
+      "apiBase": "https://api.mistral.ai/v1"
+    }
+  ],
+  "tabAutocompleteModel": {
+    "title": "DeepSeek Autocomplete",
+    "provider": "openai", 
+    "model": "deepseek/deepseek-coder-v2",
+    "apiKey": "sk-or-v1-openrouter",
+    "apiBase": "https://openrouter.ai/api/v1"
+  }
+}
+

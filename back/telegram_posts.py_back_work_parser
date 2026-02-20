@@ -1,0 +1,300 @@
+# core/parser/telegram_posts.py
+"""
+Парсер постов из Telegram веб-просмотра.
+Версия: 4.0 (12 февраля 2026)
+Изменения:
+- Полный редизайн: парсинг ТОЛЬКО первого (самого свежего) поста
+- Сравнение по ID и timestamp
+- Минимальная нагрузка на Telegram
+- Мгновенное обнаружение новых постов
+"""
+import asyncio
+import re
+import time
+from datetime import datetime
+from typing import Optional, List, Dict, Any
+import aiohttp
+from bs4 import BeautifulSoup
+from core.settings import settings
+
+
+class TelegramPostParser:
+    """Парсер постов из Telegram веб-просмотра"""
+    
+    def __init__(self):
+        self.session = None
+        
+    async def _get_session(self):
+        """Получить или создать HTTP-сессию."""
+        if self.session is None:
+            self.session = aiohttp.ClientSession(
+                headers={"User-Agent": settings.USER_AGENT}
+            )
+        return self.session
+    
+    async def get_latest_posts(
+        self, 
+        username: str, 
+        last_known_post_id: Optional[str] = None,
+        last_known_timestamp: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Получить новые посты из канала.
+        
+        Args:
+            username: Имя канала без @
+            last_known_post_id: ID последнего известного поста
+            last_known_timestamp: timestamp последнего известного поста
+            
+        Returns:
+            Список новых постов (максимум 1 пост за раз!)
+        """
+        url = f"https://t.me/s/{username}"
+        
+        try:
+            session = await self._get_session()
+            async with session.get(url, timeout=settings.REQUEST_TIMEOUT) as resp:
+                if resp.status != 200:
+                    print(f"⚠️ HTTP {resp.status} для @{username}")
+                    return []
+                
+                html = await resp.text()
+                return self._parse_latest_post(html, last_known_post_id, last_known_timestamp)
+                
+        except asyncio.TimeoutError:
+            print(f"⏰ Таймаут при запросе @{username}")
+            return []
+        except Exception as e:
+            print(f"❌ Ошибка при получении постов из @{username}: {e}")
+            return []
+##############################################################################    
+    def _parse_latest_post(
+        self, 
+        html: str, 
+        last_known_post_id: Optional[str] = None,
+        last_known_timestamp: Optional[int] = None,
+        limit: int = 50  # ✅ ДОБАВИЛИ СЮДА!
+    ) -> List[Dict[str, Any]]:
+        """
+        Парсит посты со страницы.
+        Если limit=1 - только первый пост (старое поведение)
+        Если limit=50 - все доступные посты (новая стратегия)
+        """
+        soup = BeautifulSoup(html, 'html.parser')
+        post_elements = soup.find_all('div', class_='tgme_widget_message')
+        
+        # Если limit=1 - берём только первый пост (для первого запуска)
+        if limit == 1:
+            if not post_elements:
+                return []
+            post = self._parse_single_post(post_elements[0])
+            return [post] if post else []
+        
+        # Если limit=50 - берём все доступные посты
+        posts = []
+        last_id_int = int(last_known_post_id) if last_known_post_id else 0
+        
+        for element in post_elements[:limit]:
+            post = self._parse_single_post(element)
+            if not post:
+                continue
+            
+            post_id_int = int(post['post_id'])
+            if post_id_int > last_id_int:
+                posts.append(post)
+        
+        # Сортируем от старых к новым
+        posts.sort(key=lambda x: int(x['post_id']))
+        return posts
+#####################################################################################    
+    def _parse_posts_from_html(
+        self, 
+        html: str, 
+        last_known_post_id: Optional[str] = None,
+        limit: int = 50  # ✅ ЖЁСТКО 50!
+    ) -> List[Dict[str, Any]]:
+        """Парсинг ВСЕХ постов из HTML."""
+        soup = BeautifulSoup(html, 'html.parser')
+        post_elements = soup.find_all('div', class_='tgme_widget_message')
+        
+        posts = []
+        last_id_int = int(last_known_post_id) if last_known_post_id else 0
+        max_id = 0
+        
+        for element in post_elements[:limit]:
+            post = self._parse_single_post(element)
+            if not post:
+                continue
+            
+            post_id_int = int(post['post_id'])
+            max_id = max(max_id, post_id_int)
+            
+            if post_id_int > last_id_int:
+                posts.append(post)
+    
+        # Берём ТОЛЬКО новые посты (ID > last_id)
+        posts = [p for p in posts if int(p['post_id']) > last_id_int]
+        posts.sort(key=lambda x: int(x['post_id']))
+        
+        print(f"📦 Найдено постов: {len(posts)}, максимальный ID: {max_id}")
+        return posts
+    
+    def _parse_single_post(self, element) -> Optional[Dict[str, Any]]:
+        """Парсинг одного поста."""
+        try:
+            # 1. ID поста (самое важное!)
+            post_id = self._extract_post_id(element)
+            if not post_id:
+                print("⚠️ Не удалось извлечь ID поста")
+                return None
+            
+            # 2. Текст поста
+            text_element = element.find('div', class_='tgme_widget_message_text')
+            text = text_element.get_text(strip=True) if text_element else ""
+            
+            # 3. Медиа (фото/видео)
+            media = self._extract_media(element)
+            
+            # 4. Время публикации (timestamp)
+            timestamp = self._extract_timestamp(element)
+            
+            # 5. Ссылки в посте
+            links = self._extract_links(element)
+            
+            # 6. Вид поста (forwarded, reply)
+            is_forwarded = 'tgme_widget_message_forwarded' in element.get('class', [])
+            
+            return {
+                'post_id': post_id,
+                'text': text,
+                'media': media,
+                'timestamp': timestamp,
+                'links': links,
+                'is_forwarded': is_forwarded,
+            }
+            
+        except Exception as e:
+            print(f"❌ Ошибка парсинга поста: {e}")
+            return None
+    
+    def _extract_post_id(self, element) -> Optional[str]:
+        """Извлечь уникальный ID поста."""
+        # Способ 1: Из data-post атрибута (самый надёжный)
+        if element.has_attr('data-post'):
+            data_post = element['data-post']
+            parts = data_post.split('/')
+            if len(parts) == 2:
+                return parts[1]
+        
+        # Способ 2: Из ссылки на пост
+        link_element = element.find('a', class_='tgme_widget_message_date')
+        if link_element and link_element.has_attr('href'):
+            href = link_element['href']
+            match = re.search(r'/(\d+)$', href)
+            if match:
+                return match.group(1)
+        
+        # Способ 3: Из ID элемента
+        if element.has_attr('id'):
+            element_id = element['id']
+            if element_id.startswith('message'):
+                return element_id.replace('message', '')
+        
+        return None
+    
+    def _extract_timestamp(self, element) -> int:
+        """Извлечь timestamp поста."""
+        # Способ 1: Из тега <time datetime="...">
+        time_element = element.find('time')
+        if time_element and time_element.has_attr('datetime'):
+            try:
+                dt_str = time_element['datetime']
+                # Формат: 2024-01-01T12:00:00+00:00
+                dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+                return int(dt.timestamp())
+            except (ValueError, AttributeError) as e:
+                print(f"⚠️ Ошибка парсинга datetime: {e}")
+        
+        # Способ 2: Из data-timestamp (если есть)
+        if element.has_attr('data-timestamp'):
+            try:
+                return int(element['data-timestamp'])
+            except (ValueError, TypeError):
+                pass
+        
+        # Fallback: текущее время
+        print(f"⚠️ Не удалось определить время поста. Использую текущее время.")
+        return int(time.time())
+    
+    def _extract_media(self, element) -> List[Dict[str, str]]:
+        """Извлечь медиа из поста."""
+        media = []
+        
+        # Фото
+        photo_elements = element.find_all('a', class_='tgme_widget_message_photo_wrap')
+        for photo in photo_elements:
+            if photo.has_attr('style'):
+                style = photo['style']
+                url_match = re.search(r'url\(\'([^\']+)\'\)', style)
+                if url_match:
+                    media.append({
+                        'type': 'photo',
+                        'url': url_match.group(1)
+                    })
+        
+        # Видео
+        video_element = element.find('video')
+        if video_element:
+            source = video_element.find('source')
+            if source and source.has_attr('src'):
+                media.append({
+                    'type': 'video',
+                    'url': source['src']
+                })
+        
+        return media
+    
+    def _extract_links(self, element) -> List[str]:
+        """Извлечь все ссылки из поста."""
+        links = []
+        for a in element.find_all('a'):
+            if a.has_attr('href'):
+                href = a['href']
+                # Пропускаем внутренние ссылки Telegram
+                if not href.startswith('https://t.me/'):
+                    links.append(href)
+        return links
+    
+    async def close(self):
+        """Закрыть сессию."""
+        if self.session:
+            await self.session.close()
+            self.session = None
+
+
+# Глобальный экземпляр парсера
+parser = TelegramPostParser()
+
+
+async def get_new_posts(
+    username: str, 
+    last_post_id: Optional[str] = None,
+    last_timestamp: Optional[int] = None
+) -> List[Dict[str, Any]]:
+    """
+    Публичная функция для получения новых постов.
+    
+    Args:
+        username: Имя канала без @
+        last_post_id: ID последнего известного поста
+        last_timestamp: timestamp последнего известного поста
+        
+    Returns:
+        Список новых постов (0 или 1 пост!)
+    """
+    return await parser.get_latest_posts(username, last_post_id, last_timestamp)
+
+
+async def close_parser():
+    """Закрыть сессию парсера."""
+    await parser.close()

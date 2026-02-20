@@ -1,0 +1,58 @@
+# Основной фреймворк для Telegram-бота
+aiogram>=3.13.1
+
+# Фреймворк для Mini App
+flet>=0.25.0
+
+# ❌ УДАЛЕНО: RSS больше не используется
+# feedparser>=6.0.11
+
+# Парсинг HTML для публичных TG-каналов и YouTube
+beautifulsoup4>=4.12.3
+
+# HTTP-запросы для парсинга
+requests>=2.32.3
+
+# ✅ ДОБАВЛЕНО: aiohttp для асинхронных запросов к YouTube
+aiohttp>=3.10.5
+aiohttp[speedups]>=3.10.5  # включает brotli, aiodns, cchardet
+
+# ✅ ДОБАВЛЕНО: Brotli для распаковки сжатых страниц YouTube
+brotli>=1.1.0
+brotli-asgi>=1.4.0
+
+# ORM для PostgreSQL (asyncio)
+sqlalchemy[asyncio]>=2.0.35
+
+# Асинхронный драйвер для PostgreSQL
+asyncpg>=0.30.0
+
+# Миграции БД
+alembic>=1.13.3
+
+# Планировщик задач (для мониторинга)
+apscheduler>=3.10.4
+
+# Загрузка .env-файлов
+python-dotenv>=1.0.1
+
+# Валидация настроек
+pydantic>=2.9.2
+pydantic-settings>=2.6.0
+
+# Быстрый JSON-парсер
+orjson>=3.10.7
+
+# Redis для разработки (совместим с aiogram 3.13+)
+fakeredis>=2.25.0
+redis>=5.0.8
+
+# Опционально: мониторинг ошибок
+# sentry-sdk[aiogram]>=2.0.0
+
+# requirements-dev.txt
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-cov==6.0.0
+
+python-dateutil>=2.9.0
