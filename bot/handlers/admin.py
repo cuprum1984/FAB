@@ -1,12 +1,10 @@
 # bot/handlers/admin.py
 """
 Хендлеры для админ-панели и управления группами/темами.
-Версия: 3.3 (16 февраля 2026)
+Версия: 4.0 (20 февраля 2026)
 Изменения:
-- УДАЛЁН устаревший обработчик TopicRegistration.waiting_for_name
-- Добавлена обработка ошибок pyrogram
-- Улучшено логирование
-- Добавлена проверка прав бота на управление темами
+- Добавлена локализация (i18n)
+- Все тексты вынесены в locales/
 """
 import html
 import logging
@@ -20,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from core.models import ManagedGroup, GroupTopic
-from bot.states import AdminPanel  # TopicRegistration больше не импортируем!
+from bot.states import AdminPanel
 from bot.keyboards import (
     get_admin_panel_menu, 
     get_main_menu, 
@@ -34,22 +32,25 @@ from core.services.destination_service import (
 )
 
 
-
 # Настройка логгера
 logger = logging.getLogger(__name__)
 
 router = Router(name="admin")
 
 
-@router.message(F.text == "👨‍💼 Админ-панель")
-async def open_admin_panel(message: Message, state: FSMContext):
+@router.message(F.text.in_({"👨‍💼 Админ-панель", "👨‍💼 Admin panel"}))
+async def open_admin_panel(message: Message, state: FSMContext, get_text: callable):
     """Открыть админ-панель."""
-    await message.answer("👨‍💼 <b>Админ-панель</b>", parse_mode="HTML", reply_markup=get_admin_panel_menu())
+    await message.answer(
+        get_text(['admin', 'panel']),
+        parse_mode="HTML", 
+        reply_markup=get_admin_panel_menu(get_text)
+    )
     await state.set_state(AdminPanel.main)
 
 
-@router.message(AdminPanel.main, F.text == "👥 Управление группами")
-async def manage_groups_start(message: Message, session: AsyncSession, state: FSMContext):
+@router.message(AdminPanel.main, F.text.in_({"👥 Управление группами", "👥 Manage groups"}))
+async def manage_groups_start(message: Message, session: AsyncSession, state: FSMContext, get_text: callable):
     """Управление группами."""
     user_id = message.from_user.id
     
@@ -58,10 +59,9 @@ async def manage_groups_start(message: Message, session: AsyncSession, state: FS
     
     if not groups:
         await message.answer(
-            "<b>❌ У вас нет активных групп.</b>\n\n"
-            "Добавьте группу командой /activ в нужной группе.",
+            get_text(['admin', 'no_groups']),
             parse_mode="HTML",
-            reply_markup=get_admin_panel_menu()
+            reply_markup=get_admin_panel_menu(get_text)
         )
         return
     
@@ -69,17 +69,15 @@ async def manage_groups_start(message: Message, session: AsyncSession, state: FS
     await state.update_data(groups_for_manage=groups)
     
     await message.answer(
-        f"<b>👥 Управление группами</b>\n\n"
-        f"Найдено групп: <b>{len(groups)}</b>\n\n"
-        f"Выберите группу для управления:",
+        get_text(['admin', 'groups_found'], count=len(groups)),
         parse_mode="HTML",
-        reply_markup=get_groups_menu(groups)
+        reply_markup=get_groups_menu(groups, get_text)
     )
     await state.set_state(AdminPanel.group_selected)
 
 
 @router.message(AdminPanel.group_selected)
-async def manage_group_selected(message: Message, state: FSMContext, session: AsyncSession):
+async def manage_group_selected(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
     """Пользователь выбрал конкретную группу."""
     data = await state.get_data()
     groups = data.get("groups_for_manage", [])
@@ -89,13 +87,21 @@ async def manage_group_selected(message: Message, state: FSMContext, session: As
         user_id = message.from_user.id
         groups = await get_user_groups(user_id, session)
     
-    if message.text == "← Назад в Админ-панель":
-        await message.answer("👨‍💼 <b>Админ-панель</b>", parse_mode="HTML", reply_markup=get_admin_panel_menu())
+    if message.text in ("← Назад", "← Back"):
+        await message.answer(
+            get_text(['admin', 'panel']),
+            parse_mode="HTML", 
+            reply_markup=get_admin_panel_menu(get_text)
+        )
         await state.set_state(AdminPanel.main)
         return
     
-    if message.text == "🏠 Главное меню":
-        await message.answer("🏠 <b>Главное меню</b>", parse_mode="HTML", reply_markup=get_main_menu())
+    if message.text in ("🏠 Главное меню", "🏠 Main menu"):
+        await message.answer(
+            get_text(['common', 'menu']),
+            parse_mode="HTML", 
+            reply_markup=get_main_menu(get_text)
+        )
         await state.clear()
         return
     
@@ -113,9 +119,9 @@ async def manage_group_selected(message: Message, state: FSMContext, session: As
     
     if not selected_group:
         await message.answer(
-            "<b>❌ Пожалуйста, выберите группу из списка.</b>",
+            get_text(['admin', 'select_from_list']),
             parse_mode="HTML",
-            reply_markup=get_groups_menu(groups)
+            reply_markup=get_groups_menu(groups, get_text)
         )
         return
     
@@ -134,34 +140,33 @@ async def manage_group_selected(message: Message, state: FSMContext, session: As
     topics_list = ""
     if topics:
         for i, topic in enumerate(topics, 1):
-            thread_info = f" (ID: {topic.telegram_thread_id})" if topic.telegram_thread_id else " (General)"
-            topics_list += f"{i}. <b>{html.escape(topic.topic_name)}</b>{thread_info}\n"
+            thread_info = f" (ID: {topic.telegram_thread_id})" if topic.telegram_thread_id else get_text(['admin', 'general_topic'])
+            topics_list += get_text(['admin', 'topic_item'], i=i, name=html.escape(topic.topic_name), thread_info=thread_info)
     else:
-        topics_list = "<i>Нет зарегистрированных тем</i>\n"
+        topics_list = get_text(['admin', 'no_topics'])
+    
+    status_text = get_text(['admin', 'group_active']) if selected_group.get('is_active', True) else get_text(['admin', 'group_inactive'])
     
     await message.answer(
-        f"<b>👥 Управление группой</b>\n\n"
-        f"<b>📛 Название:</b> {html.escape(selected_group['chat_title'])}\n"
-        f"<b>🆔 ID:</b> <code>{chat_id}</code>\n"
-        f"<b>📊 Статус:</b> {'✅ Активна' if selected_group.get('is_active', True) else '❌ Неактивна'}\n\n"
-        f"<b>🗂️ Зарегистрированные темы:</b>\n{topics_list}\n"
-        f"<b>⚡ Доступные действия:</b>\n"
-        f"• /activ — переактивировать группу\n"
-        f"• /plus — зарегистрировать текущую тему\n"
-        f"• /mytopics — список всех тем\n"
-        f"• /add — добавить канал в группу",
+        get_text(['admin', 'group_info'],
+                name=html.escape(selected_group['chat_title']),
+                chat_id=chat_id,
+                status=status_text,
+                topics=topics_list),
         parse_mode="HTML",
-        reply_markup=get_admin_panel_menu()
+        reply_markup=get_admin_panel_menu(get_text)
     )
     
     await state.set_state(AdminPanel.main)
 
 
 @router.message(Command("activ"))
-async def activate_group(message: Message, bot: Bot, session: AsyncSession):
+async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_text: callable):
     """Активация группы."""
     if message.chat.type not in ("group", "supergroup"):
-        await message.answer("❌ Команда работает только в группах.")
+        await message.answer(
+            get_text(['admin', 'activ_group_only'])
+        )
         return
 
     chat_id = message.chat.id
@@ -171,10 +176,14 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession):
     try:
         user_member = await bot.get_chat_member(chat_id, user_id)
         if user_member.status not in ("creator", "administrator"):
-            await message.answer("❌ Только администраторы группы могут активировать бота.")
+            await message.answer(
+                get_text(['admin', 'activ_not_admin'])
+            )
             return
     except TelegramBadRequest as e:
-        await message.answer(f"❌ Не удалось проверить ваши права в группе: {e}")
+        await message.answer(
+            get_text(['admin', 'activ_check_failed'], error=e)
+        )
         return
 
     # Проверка, что бот администратор в группе
@@ -184,10 +193,7 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession):
         # Проверяем, что бот администратор
         if not isinstance(bot_member, ChatMemberAdministrator):
             await message.answer(
-                "<b>❌ Бот должен быть администратором группы.</b>\n\n"
-                "Добавьте бота как администратора с правами:\n"
-                "• <b>Отправка сообщений</b> (Send Messages) — обязательно\n"
-                "• <b>Управление темами</b> (Manage Topics) — для работы с форумами",
+                get_text(['admin', 'activ_bot_not_admin']),
                 parse_mode="HTML"
             )
             return
@@ -198,14 +204,15 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession):
         
         if can_post is False and can_send is False:
             await message.answer(
-                "<b>❌ Бот должен иметь право публиковать сообщения.</b>\n\n"
-                "Пожалуйста, дайте боту право 'Отправка сообщений' (Send Messages).",
+                get_text(['admin', 'activ_bot_no_permission']),
                 parse_mode="HTML"
             )
             return
 
     except TelegramBadRequest as e:
-        await message.answer(f"❌ Бот не является участником этой группы: {e}")
+        await message.answer(
+            get_text(['admin', 'activ_bot_not_member'], error=e)
+        )
         return
 
     # Проверяем, существует ли уже группа в БД
@@ -221,14 +228,14 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession):
                 existing_group.bot_role_in_group = bot_member.status
                 await session.commit()
                 await message.answer(
-                    f"<b>✅ Группа реактивирована!</b>\n\n"
-                    f"<b>📛 Название:</b> {html.escape(message.chat.title or 'Без названия')}",
+                    get_text(['admin', 'activ_reactivated'], 
+                            name=html.escape(message.chat.title or get_text(['admin', 'no_title']))),
                     parse_mode="HTML"
                 )
             else:
                 await message.answer(
-                    f"<b>✅ Группа уже активна</b>\n\n"
-                    f"<b>📛 Название:</b> {html.escape(message.chat.title or 'Без названия')}",
+                    get_text(['admin', 'activ_already_active'],
+                            name=html.escape(message.chat.title or get_text(['admin', 'no_title']))),
                     parse_mode="HTML"
                 )
         else:
@@ -276,14 +283,9 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession):
                 logger.info(f"✅ Создана General тема для группы {chat_id}")
             
             await message.answer(
-                f"<b>✅ Группа активирована!</b>\n\n"
-                f"<b>📛 Название:</b> {html.escape(message.chat.title or 'Без названия')}\n"
-                f"<b>🆔 ID:</b> <code>{chat_id}</code>\n"
-                f"<b>🗂️ Создана тема:</b> General\n\n"
-                f"<b>🎯 Теперь можно:</b>\n"
-                f"• Добавлять каналы через /add\n"
-                f"• Регистрировать темы через /plus\n"
-                f"• Управлять через Админ-панель",
+                get_text(['admin', 'activ_success'],
+                        name=html.escape(message.chat.title or get_text(['admin', 'no_title'])),
+                        chat_id=chat_id),
                 parse_mode="HTML"
             )
             
@@ -291,13 +293,13 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession):
         await session.rollback()
         logger.error(f"❌ Ошибка активации группы: {e}", exc_info=True)
         await message.answer(
-            f"<b>❌ Ошибка при активации группы:</b>\n<code>{html.escape(str(e)[:200])}</code>",
+            get_text(['admin', 'activ_error'], error=html.escape(str(e)[:200])),
             parse_mode="HTML"
         )
 
 
 @router.message(Command("mytopics"))
-async def cmd_my_topics(message: Message, session: AsyncSession):
+async def cmd_my_topics(message: Message, session: AsyncSession, get_text: callable):
     """Показать все зарегистрированные темы пользователя."""
     user_id = message.from_user.id
     
@@ -306,13 +308,12 @@ async def cmd_my_topics(message: Message, session: AsyncSession):
     
     if not groups:
         await message.answer(
-            "<b>❌ Нет активных групп</b>\n\n"
-            "<i>Сначала активируйте группу через /activ</i>",
+            get_text(['admin', 'mytopics_no_groups']),
             parse_mode="HTML"
         )
         return
     
-    text = "<b>🗂️ Ваши зарегистрированные темы</b>\n\n"
+    text = get_text(['admin', 'mytopics_title'])
     total_topics = 0
     
     for group in groups:
@@ -328,36 +329,28 @@ async def cmd_my_topics(message: Message, session: AsyncSession):
         topics = topics_result.scalars().all()
         
         if topics:
-            text += f"<b>👥 {html.escape(group['chat_title'])}</b>:\n"
+            text += get_text(['admin', 'mytopics_group_header'], name=html.escape(group['chat_title']))
             
             for topic in topics:
-                emoji = "💬" if topic.telegram_thread_id is None else "🗨️"
-                thread_info = f" (ID: {topic.telegram_thread_id})" if topic.telegram_thread_id else " (General)"
-                text += f"  {emoji} <b>{html.escape(topic.topic_name)}</b>{thread_info}\n"
+                emoji = get_text(['admin', 'mytopics_general']) if topic.telegram_thread_id is None else get_text(['admin', 'mytopics_topic'])
+                thread_info = f" (ID: {topic.telegram_thread_id})" if topic.telegram_thread_id else get_text(['admin', 'general_topic'])
+                text += get_text(['admin', 'mytopics_item'], emoji=emoji, name=html.escape(topic.topic_name), thread_info=thread_info)
                 total_topics += 1
             
             text += "\n"
     
     if total_topics == 0:
-        text += "<i>Нет зарегистрированных тем</i>\n\n"
+        text += get_text(['admin', 'mytopics_no_topics'])
     
-    text += (
-        f"<b>📊 Всего тем:</b> {total_topics}\n\n"
-        f"<b>📌 Как добавить тему:</b>\n"
-        f"1. Перейдите в тему в Telegram\n"
-        f"2. Напишите команду <code>/plus</code>\n"
-        f"3. Бот зарегистрирует тему\n\n"
-        f"<i>После регистрации темы можно добавлять в неё источники через /add</i>"
-    )
+    text += get_text(['admin', 'mytopics_total'], count=total_topics)
     
     await message.answer(text, parse_mode="HTML")
 
 
 @router.message(Command("plus"))
-async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, state: FSMContext):
+async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, get_text: callable):
     """
     Зарегистрировать тему в базе бота.
-    Название темы уже автоматически сохранено через служебные сообщения.
     """
     chat_id = message.chat.id
     user_id = message.from_user.id
@@ -383,10 +376,7 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
         else:
             # Это не тема вообще
             await message.answer(
-                "<b>❌ Эта команда работает только внутри темы!</b>\n\n"
-                "1. Перейдите в нужную тему\n"
-                "2. Напишите команду <code>/plus</code>\n\n"
-                "<i>Если это General тема, она уже должна быть создана автоматически при /activ</i>",
+                get_text(['admin', 'plus_not_in_topic']),
                 parse_mode="HTML"
             )
             return
@@ -398,8 +388,7 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
     
     if not group or not group.is_bot_active_in_group:
         await message.answer(
-            "<b>❌ Группа не активирована!</b>\n\n"
-            "Сначала активируйте группу командой <code>/activ</code>",
+            get_text(['admin', 'plus_group_not_active']),
             parse_mode="HTML"
         )
         return
@@ -408,10 +397,14 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
     try:
         user_member = await bot.get_chat_member(chat_id, user_id)
         if user_member.status not in ("creator", "administrator"):
-            await message.answer("❌ Только администраторы могут регистрировать темы.")
+            await message.answer(
+                get_text(['admin', 'plus_not_admin'])
+            )
             return
     except Exception as e:
-        await message.answer(f"❌ Ошибка проверки прав: {e}")
+        await message.answer(
+            get_text(['admin', 'plus_error'], error=e)
+        )
         return
     
     # ===== 4. ПОЛУЧАЕМ ИДЕНТИФИКАТОР ТЕМЫ =====
@@ -437,11 +430,12 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
         logger.info(f"📝 Название темы из БД: '{topic_name}'")
         
         # Если тема уже зарегистрирована, просто показываем информацию
+        thread_display = "General" if is_general else thread_id
         await message.answer(
-            f"<b>✅ Тема уже зарегистрирована!</b>\n\n"
-            f"• <b>📛 Название:</b> {html.escape(existing_topic.topic_name)}\n"
-            f"• <b>🆔 ID темы:</b> {'General' if is_general else thread_id}\n"
-            f"• <b>🔗 Идентификатор:</b> <code>{topic_identifier}</code>",
+            get_text(['admin', 'plus_already_exists'],
+                    name=html.escape(existing_topic.topic_name),
+                    thread_id=thread_display,
+                    identifier=topic_identifier),
             parse_mode="HTML"
         )
         return
@@ -452,14 +446,10 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
         logger.info("📝 Создание General темы")
     else:
         # Пробуем получить название через служебные сообщения
-        # Для этого нужно было бы сохранить его при создании темы
-        # Но как fallback используем thread_id
-        topic_name = f"Тема {thread_id}"
+        topic_name = f"Topic {thread_id}"
         logger.info(f"📝 Тема не найдена в БД, использую fallback: '{topic_name}'")
         await message.answer(
-            f"⚠️ <b>Не удалось найти название темы в базе.</b>\n\n"
-            f"Тема будет зарегистрирована как <b>'{topic_name}'</b>.\n"
-            f"При следующем переименовании название обновится автоматически.",
+            get_text(['admin', 'plus_not_found'], name=topic_name),
             parse_mode="HTML"
         )
     
@@ -473,33 +463,32 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
             session=session
         )
         
-        # Формируем ответ
-        response = (
-            f"<b>✅ Тема зарегистрирована!</b>\n\n"
-            f"• <b>📛 Название:</b> {html.escape(topic_name)}\n"
+        thread_display = "General" if is_general else thread_id
+        
+        await message.answer(
+            get_text(['admin', 'plus_success'],
+                    name=html.escape(topic_name),
+                    thread_id=thread_display,
+                    identifier=topic.topic_identifier),
+            parse_mode="HTML"
         )
-        
-        if is_general:
-            response += f"• <b>🆔 ID темы:</b> General\n"
-        else:
-            response += f"• <b>🆔 ID темы:</b> {thread_id}\n"
-        
-        response += f"• <b>🔗 Идентификатор:</b> <code>{topic.topic_identifier}</code>"
-        
-        await message.answer(response, parse_mode="HTML")
         logger.info(f"✅ Зарегистрирована тема: {topic_name} (thread_id: {thread_id_to_save})")
         
     except Exception as e:
         await session.rollback()
         logger.error(f"❌ Ошибка регистрации темы: {e}", exc_info=True)
         await message.answer(
-            f"<b>❌ Ошибка при регистрации темы:</b>\n<code>{html.escape(str(e)[:200])}</code>",
+            get_text(['admin', 'plus_error_db'], error=html.escape(str(e)[:200])),
             parse_mode="HTML"
         )
 
 
-@router.message(AdminPanel.main, F.text == "← Назад в главное меню")
-async def back_to_main(message: Message, state: FSMContext):
+@router.message(AdminPanel.main, F.text.in_({"← Назад в главное меню", "← Back to main menu"}))
+async def back_to_main(message: Message, state: FSMContext, get_text: callable):
     """Вернуться в главное меню."""
-    await message.answer("🏠 <b>Главное меню</b>", parse_mode="HTML", reply_markup=get_main_menu())
+    await message.answer(
+        get_text(['common', 'menu']),
+        parse_mode="HTML", 
+        reply_markup=get_main_menu(get_text)
+    )
     await state.clear()
