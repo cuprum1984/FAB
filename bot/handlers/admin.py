@@ -13,7 +13,8 @@ import logging
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, ChatMemberAdministrator
+from aiogram.types import Message, ChatMemberAdministrator, ChatMemberUpdated
+from aiogram.enums import ChatMemberStatus
 from aiogram.exceptions import TelegramBadRequest
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +31,8 @@ from bot.keyboards import (
 from core.services.destination_service import (
     get_user_groups,
     create_or_update_topic,
-    TopicUtils
+    TopicUtils,
+    deactivate_group_by_chat_id,
 )
 
 
@@ -39,6 +41,29 @@ from core.services.destination_service import (
 logger = logging.getLogger(__name__)
 
 router = Router(name="admin")
+
+
+@router.my_chat_member(
+    F.chat_member.new_chat_member.status.in_([ChatMemberStatus.KICKED, ChatMemberStatus.LEFT])
+)
+async def on_bot_removed_from_chat(event: ChatMemberUpdated, session: AsyncSession):
+    """
+    Бот удалён из чата (KICKED) или вышел (LEFT) — помечаем группу неактивной,
+    чтобы не тратить ресурсы на рассылку в этот чат.
+    """
+    chat_id = event.chat.id
+    new_status = event.new_chat_member.status
+    try:
+        updated = await deactivate_group_by_chat_id(session, chat_id)
+        if updated:
+            await session.commit()
+            logger.warning(
+                f"🏚️ Бот удалён из чата (new status={new_status}), "
+                f"chat_id={chat_id} помечен неактивным"
+            )
+    except Exception as e:
+        await session.rollback()
+        logger.error(f"❌ Ошибка при деактивации чата {chat_id}: {e}")
 
 
 @router.message(F.text == "👨‍💼 Админ-панель")

@@ -38,6 +38,7 @@ class TelegramAccount(Base):
     telegram_first_name: Mapped[str] = mapped_column(String(128), nullable=False)
     telegram_last_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     is_bot_blocked: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default="true", nullable=False)
     language_code: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     registration_timestamp: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     last_activity: Mapped[Optional[datetime]] = mapped_column(nullable=True)
