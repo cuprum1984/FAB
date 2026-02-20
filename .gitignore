@@ -137,6 +137,21 @@ env.bak/
 venv.bak/
 .continue/
 .qodo/
+app/
+tree_proj.md
+1.py
+2.py
+check_and_fix_missing_assignments.py
+check_user.py
+clear_db.py
+clear_redis.py
+debug_db.py
+redis_data.json
+промпт_19-02-26.md
+scripts/
+tests/
+
+
 
 # Spyder project settings
 .spyderproject
