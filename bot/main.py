@@ -1,14 +1,11 @@
 #!/usr/bin/env python
 """
 Основной бот MyAggryBot.
-Версия: 5.0 (17 февраля 2026)
+Версия: 5.2 (20 февраля 2026)
 Изменения:
-- Полный переход на YouTube HTML парсер (вместо RSS)
-- Обновлены импорты и компоненты
-- Улучшено логирование для нового парсера
-- Добавлено закрытие HTML парсера при остановке
+- Добавлена локализация для команд бота
+- Команды теперь показываются на языке пользователя
 """
-
 import asyncio
 import logging
 import sys
@@ -23,7 +20,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, BotCommandScopeDefault
+from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeChat
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
@@ -34,15 +31,19 @@ from core.database import init_db, async_session, check_db_connection
 from core.redis_client import redis_client, check_redis_connection
 from core.services.monitoring_service import start_monitoring, stop_monitoring
 from core.parser.youtube_simple import get_parser as get_youtube_parser, close_parser as close_youtube_parser
-# 👇 ВАЖНО: импортируем middleware
+from core.models import UserPreferences
+from core.utils.i18n import create_i18n
+
+# 👇 Middleware
 from bot.middlewares import DBSessionMiddleware
+from bot.middlewares.i18n import I18nMiddleware
 
 # Импортируем хендлеры
 from bot.handlers import (
     common,
     sources,
     admin,
-    topics_auto,  # авто-сохранение тем
+    topics_auto,
 )
 
 # Настройка логирования
@@ -55,30 +56,70 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Для отладки YouTube HTML парсера
-#youtube_html_logger = logging.getLogger('core.parser.youtube_html')
-#youtube_html_logger.setLevel(logging.DEBUG if settings.ENV == "development" else logging.INFO)
-
-
 # Глобальные переменные для graceful shutdown
 shutdown_event = asyncio.Event()
 tasks: list[asyncio.Task] = []
 
 
 async def set_bot_commands(bot: Bot):
-    """Установка команд бота"""
-    commands = [
+    """Установка команд бота с русским языком по умолчанию"""
+    # Русские команды (для всех новых пользователей)
+    ru_commands = [
         BotCommand(command="start", description="🚀 Запустить бота"),
         BotCommand(command="help", description="📖 Помощь"),
         BotCommand(command="add", description="➕ Добавить канал"),
         BotCommand(command="list", description="📋 Мои источники"),
         BotCommand(command="mytopics", description="🗂️ Мои темы"),
-        BotCommand(command="refresh", description="🔄 Принудительная проверка"),  # ← ЭТУ СТРОКУ
+        BotCommand(command="refresh", description="🔄 Принудительная проверка"),
         BotCommand(command="activ", description="✅ Активировать группу"),
     ]
     
-    await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
-    logger.info(f"✅ Установлено {len(commands)} команд")
+    # Английские команды
+    en_commands = [
+        BotCommand(command="start", description="🚀 Start bot"),
+        BotCommand(command="help", description="📖 Help"),
+        BotCommand(command="add", description="➕ Add channel"),
+        BotCommand(command="list", description="📋 My sources"),
+        BotCommand(command="mytopics", description="🗂️ My topics"),
+        BotCommand(command="refresh", description="🔄 Force check"),
+        BotCommand(command="activ", description="✅ Activate group"),
+    ]
+    
+    # Устанавливаем русские команды как default
+    await bot.set_my_commands(ru_commands, scope=BotCommandScopeDefault())
+    logger.info(f"✅ Установлены команды по умолчанию (русский)")
+    
+    # Здесь мы не можем установить команды для каждого пользователя индивидуально,
+    # потому что это нужно делать при каждом запуске бота.
+    # Вместо этого, команды будут обновляться при смене языка через отдельный хендлер
+
+
+async def update_user_commands(bot: Bot, user_id: int, language: str):
+    """Обновить команды для конкретного пользователя"""
+    if language == "en":
+        commands = [
+            BotCommand(command="start", description="🚀 Start bot"),
+            BotCommand(command="help", description="📖 Help"),
+            BotCommand(command="add", description="➕ Add channel"),
+            BotCommand(command="list", description="📋 My sources"),
+            BotCommand(command="mytopics", description="🗂️ My topics"),
+            BotCommand(command="refresh", description="🔄 Force check"),
+            BotCommand(command="activ", description="✅ Activate group"),
+        ]
+    else:
+        commands = [
+            BotCommand(command="start", description="🚀 Запустить бота"),
+            BotCommand(command="help", description="📖 Помощь"),
+            BotCommand(command="add", description="➕ Добавить канал"),
+            BotCommand(command="list", description="📋 Мои источники"),
+            BotCommand(command="mytopics", description="🗂️ Мои темы"),
+            BotCommand(command="refresh", description="🔄 Принудительная проверка"),
+            BotCommand(command="activ", description="✅ Активировать группу"),
+        ]
+    
+    scope = BotCommandScopeChat(chat_id=user_id)
+    await bot.set_my_commands(commands, scope=scope)
+    logger.info(f"✅ Обновлены команды для пользователя {user_id}: {language}")
 
 
 async def check_connections() -> bool:
@@ -131,10 +172,11 @@ async def on_startup(bot: Bot):
         logger.info("✅ Мониторинг источников запущен")
         
         logger.info("📦 Компоненты:")
-        logger.info("  • Основной бот: v5.0")
+        logger.info("  • Основной бот: v5.2")
         logger.info("  • Парсер YouTube (HTML): v1.0")
         logger.info("  • Парсер Telegram: v4.1")
         logger.info("  • Мониторинг: v4.0")
+        logger.info("  • Локализация: i18n (en/ru)")
         logger.info("  • Темы: авто-сохранение через Bot API")
         
         logger.info("=" * 50)
@@ -247,16 +289,19 @@ async def main():
     
     dp = Dispatcher(storage=storage)
     
-    # 👇 👇 👇 ВАЖНО: ПОДКЛЮЧАЕМ MIDDLEWARE ДЛЯ БД 👇 👇 👇
-    dp.update.middleware(DBSessionMiddleware())
-    logger.info("✅ Middleware для БД подключён")
+    # 👇 ВАЖНО: ПРАВИЛЬНЫЙ ПОРЯДОК MIDDLEWARE 👇
+    dp.message.middleware(DBSessionMiddleware())      # 1. Сначала БД
+    dp.callback_query.middleware(DBSessionMiddleware())  # 1. Для callback тоже БД
+    dp.message.middleware(I18nMiddleware())           # 2. Потом i18n для сообщений
+    dp.callback_query.middleware(I18nMiddleware())    # 3. И для callback (ОДИН РАЗ!)
+    logger.info("✅ Middleware для БД и i18n подключены")
     
     # Подключаем роутеры
-    dp.include_router(sources.router)
-    dp.include_router(admin.router)
-    dp.include_router(topics_auto.router)  # авто-сохранение тем
-    dp.include_router(common.router)
-    dp.include_router(settings_handler.router)
+    dp.include_router(common.router)      # сначала общие     # потом источники
+    dp.include_router(admin.router)     # админка
+    dp.include_router(sources.router)  
+    dp.include_router(topics_auto.router) # авто-сохранение тем
+    dp.include_router(settings_handler.router) # настройки
     
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
@@ -277,9 +322,9 @@ async def main():
                 "callback_query", 
                 "chat_member",
                 "my_chat_member",
-                "forum_topic_created",  # для тем
-                "forum_topic_edited",    # для тем
-                "forum_topic_closed",    # для тем
+                "forum_topic_created",
+                "forum_topic_edited",
+                "forum_topic_closed",
             ],
             handle_signals=False,
             close_bot_session=False,

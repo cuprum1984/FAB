@@ -1,13 +1,10 @@
 # bot/handlers/sources.py
 """
 Хендлеры для управления источниками контента (каналами).
-Версия: 6.0 (17 февраля 2026)
+Версия: 7.0 (20 февраля 2026)
 Изменения:
-- Полный переход на YouTube HTML парсер (вместо RSS)
-- Добавлены новые поля: youtube_username, channel_language, last_video_timestamp
-- Улучшена обработка кириллических URL
-- Добавлено определение языка канала
-- Оптимизирована отправка первого видео (одним сообщением)
+- Добавлена локализация (i18n)
+- Все тексты вынесены в locales/
 """
 
 import urllib.parse
@@ -16,14 +13,12 @@ import re
 import html
 import logging
 import hashlib
-import random
-from typing import Optional
 from datetime import datetime
 
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery, BufferedInputFile
+from aiogram.types import Message, CallbackQuery
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,9 +64,8 @@ USERNAME_REGEX = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{4,31}$")
 
 
 @router.message(Command("add"))
-@router.message(F.text == "📥 Добавить канал")
-@router.message(F.text == "Добавить канал")
-async def cmd_add_channel(message: Message, state: FSMContext, session: AsyncSession): 
+@router.message(F.text.in_({"📥 Добавить канал", "📥 Add channel"}))
+async def cmd_add_channel(message: Message, state: FSMContext, session: AsyncSession, get_text: callable): 
     """Начать процесс добавления канала."""
     
     logger.info(f"📥 Пользователь {message.from_user.id} начал добавление канала")
@@ -79,35 +73,22 @@ async def cmd_add_channel(message: Message, state: FSMContext, session: AsyncSes
     groups = await get_user_groups(message.from_user.id, session)
     if not groups:
         await message.answer(
-            "<b>❌ Сначала добавьте хотя бы одну группу через Админ-панель.</b>\n\n"
-            "1. Добавьте бота в группу\n"
-            "2. Сделайте его администратором\n"
-            "3. В группе введите команду /activ",
+            get_text(['sources', 'add_no_groups']),
             parse_mode="HTML",
-            reply_markup=get_main_menu()
+            reply_markup=get_main_menu(get_text)
         )
         return
     
     await message.answer(
-        "<b>📥 Добавление канала</b>\n\n"
-        "<b>Введите username канала или ссылку:</b>\n\n"
-        "<b>📌 Примеры:</b>\n"
-        "• @durov\n"
-        "• durov\n"
-        "• https://t.me/durov\n"
-        "• https://youtube.com/@TheBrainDit\n"
-        "• @ОбманутыйРоссиянин (кириллица)\n\n"
-        "<i>YouTube каналы — по ссылке или @username</i>",
+        get_text(['sources', 'add_prompt']),
         parse_mode="HTML",
-        reply_markup=get_cancel_kb_reply()
+        reply_markup=get_cancel_kb_reply(get_text)
     )
     await state.set_state(AddChannel.waiting_for_username)
 
 
-
-
 @router.message(AddChannel.waiting_for_username)
-async def process_channel_username(message: Message, state: FSMContext, session: AsyncSession):
+async def process_channel_username(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
     """Обработать ввод username канала или ссылки."""
     raw_input = URLSecurity.sanitize_input(message.text.strip())
     
@@ -118,13 +99,16 @@ async def process_channel_username(message: Message, state: FSMContext, session:
     except:
         pass
     
-    if raw_input == "❌ Отмена":
-        await message.answer("❌ Добавление отменено.", parse_mode="HTML", reply_markup=get_main_menu())
+    if raw_input in ("❌ Отмена", "❌ Cancel"):
+        await message.answer(
+            get_text(['sources', 'add_cancelled']),
+            parse_mode="HTML", 
+            reply_markup=get_main_menu(get_text)
+        )
         await state.clear()
         return
     
     # ========== 🔍 ПРОВЕРЯЕМ, НЕ YOUTUBE ЛИ ЭТО ==========
-    # YouTube ТОЛЬКО по ссылкам, не по @username!
     is_youtube = False
     
     # Проверяем наличие youtube.com или youtu.be в ссылке
@@ -141,13 +125,16 @@ async def process_channel_username(message: Message, state: FSMContext, session:
         is_safe, reason = URLSecurity.validate_url(raw_input, 'youtube')
         if not is_safe:
             await message.answer(
-                f"<b>❌ YouTube канал заблокирован</b>\n\nПричина: {reason}",
+                get_text(['sources', 'youtube_blocked'], reason=reason),
                 parse_mode="HTML",
-                reply_markup=get_cancel_kb_reply()
+                reply_markup=get_cancel_kb_reply(get_text)
             )
             return
         
-        await message.answer("<b>🔍 Проверяю YouTube канал...</b>", parse_mode="HTML")
+        await message.answer(
+            get_text(['sources', 'youtube_checking']),
+            parse_mode="HTML"
+        )
         
         # Извлекаем username из ссылки
         username = raw_input.strip()
@@ -158,11 +145,9 @@ async def process_channel_username(message: Message, state: FSMContext, session:
         elif 'youtu.be/' in username:
             # Это ссылка на видео, а не на канал
             await message.answer(
-                "<b>❌ Это ссылка на видео, а не на канал</b>\n\n"
-                "Введите ссылку на канал, например:\n"
-                "https://youtube.com/@TheBrainDit",
+                get_text(['sources', 'youtube_invalid_link']),
                 parse_mode="HTML",
-                reply_markup=get_cancel_kb_reply()
+                reply_markup=get_cancel_kb_reply(get_text)
             )
             return
         
@@ -176,18 +161,19 @@ async def process_channel_username(message: Message, state: FSMContext, session:
         # ===== ЕСЛИ НЕ ПОЛУЧИЛОСЬ - ПОВТОР ЧЕРЕЗ 3 СЕКУНДЫ =====
         if not channel_data:
             logger.info(f"⚠️ Первая попытка не удалась для @{username}, пробую через 3 сек...")
+            await message.answer(
+                get_text(['sources', 'youtube_retry'], username=username),
+                parse_mode="HTML"
+            )
             await asyncio.sleep(3)
             channel_data = await youtube_parser.get_channel_data(username)
         
         # ===== ЕСЛИ ВСЁ ЕЩЁ НЕТ - ОШИБКА =====
         if not channel_data:
             await message.answer(
-                "<b>❌ Не удалось получить данные канала</b>\n\n"
-                "⏳ <i>YouTube может тормозить при первом обращении.\n"
-                "Если не получится сразу — бот повторит попытку автоматически.</i>"
-                "Проверьте ссылку. Пример: https://youtube.com/@TheBrainDit",
+                get_text(['sources', 'youtube_failed']),
                 parse_mode="HTML",
-                reply_markup=get_cancel_kb_reply()
+                reply_markup=get_cancel_kb_reply(get_text)
             )
             return
         
@@ -206,14 +192,12 @@ async def process_channel_username(message: Message, state: FSMContext, session:
         )
         
         await message.answer(
-            f"<b>✅ Найден YouTube канал!</b>\n\n"
-            f"• <b>Название:</b> {channel_title}\n"
-            f"• <b>Username:</b> @{username}\n"
-            f"• <b>Последнее видео:</b> {video_id}\n"
-            f"• <b>Ссылка:</b> https://youtu.be/{video_id}\n\n"
-            f"<b>Добавить этот канал?</b>",
+            get_text(['sources', 'youtube_found'],
+                    title=channel_title,
+                    username=username,
+                    video_id=video_id),
             parse_mode="HTML",
-            reply_markup=get_confirm_channel_kb()
+            reply_markup=get_confirm_channel_kb(get_text)
         )
         await state.set_state(AddChannel.confirm_channel)
         return
@@ -224,10 +208,9 @@ async def process_channel_username(message: Message, state: FSMContext, session:
         # Если это ссылка - проверяем, что это Telegram
         if 't.me' not in raw_input.lower() and 'telegram.org' not in raw_input.lower():
             await message.answer(
-                "<b>❌ Недопустимая ссылка</b>\n\n"
-                "Разрешены только ссылки на Telegram каналы.",
+                get_text(['sources', 'telegram_invalid_domain']),
                 parse_mode="HTML",
-                reply_markup=get_cancel_kb_reply()
+                reply_markup=get_cancel_kb_reply(get_text)
             )
             return
     
@@ -240,31 +223,32 @@ async def process_channel_username(message: Message, state: FSMContext, session:
             # Разрешаем, но логируем
         else:
             await message.answer(
-                "<b>❌ Неверный формат username</b>\n\n"
-                "Требования: 5-32 символа, буквы a-z, цифры 0-9, подчёркивание\n"
-                "Пример: @durov, durov, https://t.me/durov",
+                get_text(['sources', 'telegram_invalid_username']),
                 parse_mode="HTML",
-                reply_markup=get_cancel_kb_reply()
+                reply_markup=get_cancel_kb_reply(get_text)
             )
             return
     
-    await message.answer("<b>🔍 Проверяю Telegram канал...</b>", parse_mode="HTML")
+    await message.answer(
+        get_text(['sources', 'telegram_checking']),
+        parse_mode="HTML"
+    )
     
     exists, error = await check_channel_exists(username)
     if not exists:
         await message.answer(
-            f"<b>❌ Канал не найден</b>\n\nОшибка: {html.escape(error)}",
+            get_text(['sources', 'telegram_not_found'], error=html.escape(error)),
             parse_mode="HTML",
-            reply_markup=get_cancel_kb_reply()
+            reply_markup=get_cancel_kb_reply(get_text)
         )
         return
     
     posts = await get_telegram_posts(username, first_only=True)
     if not posts:
         await message.answer(
-            f"<b>❌ Не удалось получить пост из канала @{username}</b>",
+            get_text(['sources', 'telegram_no_posts'], username=username),
             parse_mode="HTML",
-            reply_markup=get_cancel_kb_reply()
+            reply_markup=get_cancel_kb_reply(get_text)
         )
         return
     
@@ -281,19 +265,18 @@ async def process_channel_username(message: Message, state: FSMContext, session:
     )
     
     await message.answer(
-        f"<b>✅ Информация о канале</b>\n\n"
-        f"• Username: @{username}\n"
-        f"• Название: {html.escape(title)}\n"
-        f"• Последний пост ID: {first_post_id}\n\n"
-        f"<b>Добавить этот канал?</b>",
+        get_text(['sources', 'telegram_found'],
+                username=username,
+                title=html.escape(title),
+                post_id=first_post_id),
         parse_mode="HTML",
-        reply_markup=get_confirm_channel_kb()
+        reply_markup=get_confirm_channel_kb(get_text)
     )
     await state.set_state(AddChannel.confirm_channel)
 
 
 @router.callback_query(AddChannel.confirm_channel, F.data == "confirm_add_channel")
-async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
     """Подтвердить добавление канала - для Telegram и YouTube"""
     
     await callback.answer()
@@ -302,18 +285,23 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
     source_type = data.get("source_type")
     
     if not source_type:
-        await callback.message.edit_text("❌ Ошибка: тип источника не определён", parse_mode="HTML")
+        await callback.message.edit_text(
+            get_text(['sources', 'error_no_type']),
+            parse_mode="HTML"
+        )
         await state.clear()
         return
     
     try:
-        # ========== ОБЩАЯ ИНФОРМАЦИЯ ==========
         source_title = data.get("source_title")
         
         if source_type == "telegram":
             username = data.get("source_username")
             if not username:
-                await callback.message.edit_text("❌ Ошибка: username не найден", parse_mode="HTML")
+                await callback.message.edit_text(
+                    get_text(['sources', 'error_no_username']),
+                    parse_mode="HTML"
+                )
                 await state.clear()
                 return
             
@@ -322,9 +310,9 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
             first_post = data.get("first_post")
             
             await callback.message.edit_text(
-                f"✅ Канал @{username} найден!\n"
-                f"📥 Последний пост ID: {first_post_id}\n\n"
-                f"⏳ Сохраняю...",
+                get_text(['sources', 'add_saving_telegram'],
+                        username=username,
+                        post_id=first_post_id),
                 parse_mode="HTML"
             )
             
@@ -334,7 +322,10 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
             channel_language = data.get("channel_language", 'en')
             
             if not channel_id:
-                await callback.message.edit_text("❌ Ошибка: channel_id не найден", parse_mode="HTML")
+                await callback.message.edit_text(
+                    get_text(['sources', 'error_no_channel_id']),
+                    parse_mode="HTML"
+                )
                 await state.clear()
                 return
             
@@ -345,9 +336,9 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
             last_video = data.get("last_video")
             
             await callback.message.edit_text(
-                f"✅ YouTube канал @{username} найден!\n"
-                f"📥 Последнее видео ID: {last_video_id}\n\n"
-                f"⏳ Сохраняю...",
+                get_text(['sources', 'add_saving_youtube'],
+                        username=username,
+                        video_id=last_video_id),
                 parse_mode="HTML"
             )
         
@@ -408,7 +399,10 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
         destinations = await get_user_destinations(callback.from_user.id, session)
         
         if not destinations:
-            await callback.message.edit_text("❌ Нет подключённых групп", parse_mode="HTML")
+            await callback.message.edit_text(
+                get_text(['sources', 'error_no_groups']),
+                parse_mode="HTML"
+            )
             await state.clear()
             return
         
@@ -437,9 +431,9 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
         
         # ✅ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ С КЛАВИАТУРОЙ
         await callback.message.answer(
-            "📌 Теперь выберите группу/тему для отправки последнего поста:",
+            get_text(['sources', 'add_saved']),
             parse_mode="HTML",
-            reply_markup=get_destinations_menu(destinations)
+            reply_markup=get_destinations_menu(destinations, get_text)
         )
         
         await state.set_state(AddChannel.choose_destination)
@@ -448,27 +442,30 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
         await session.rollback()
         logger.error(f"❌ Ошибка добавления канала: {e}", exc_info=True)
         await callback.message.edit_text(
-            f"❌ Ошибка: {str(e)[:100]}", 
+            get_text(['sources', 'error_general'], error=str(e)[:100]), 
             parse_mode="HTML"
         )
         await state.clear()
 
 
 @router.callback_query(AddChannel.confirm_channel, F.data == "cancel_add_channel")
-async def cancel_add_channel(callback: CallbackQuery, state: FSMContext):
+async def cancel_add_channel(callback: CallbackQuery, state: FSMContext, get_text: callable):
     """Отменить добавление канала."""
     await callback.answer()
-    await callback.message.edit_text("❌ Добавление отменено.", parse_mode="HTML")
+    await callback.message.edit_text(
+        get_text(['sources', 'add_cancelled']),
+        parse_mode="HTML"
+    )
     await state.clear()
     await callback.message.answer(
-        "Главное меню:", 
+        get_text(['common', 'menu']), 
         parse_mode="HTML", 
-        reply_markup=get_main_menu()
+        reply_markup=get_main_menu(get_text)
     )
 
 
 @router.message(AddChannel.choose_destination)
-async def process_destination_choice(message: Message, state: FSMContext, session: AsyncSession):
+async def process_destination_choice(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
     """Обработать выбор группы/темы и ОТПРАВИТЬ ТОЛЬКО 1 ПОСТ"""
     
     data = await state.get_data()
@@ -476,8 +473,11 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
     source_global_id = data.get("source_global_id")
     source_type = data.get("source_type", "telegram")
     
-    if message.text == "❌ Отмена":
-        await message.answer("❌ Отменено", reply_markup=get_main_menu())
+    if message.text in ("❌ Отмена", "❌ Cancel"):
+        await message.answer(
+            get_text(['sources', 'add_cancelled']),
+            reply_markup=get_main_menu(get_text)
+        )
         await state.clear()
         return
 
@@ -513,9 +513,9 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
     
     if not chosen:
         await message.answer(
-            "❌ Не удалось распознать выбор. Пожалуйста, выберите из списка:",
+            get_text(['sources', 'destination_not_found']),
             parse_mode="HTML",
-            reply_markup=get_destinations_menu(destinations)
+            reply_markup=get_destinations_menu(destinations, get_text)
         )
         return
 
@@ -587,9 +587,9 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
         
         if existing_assignment:
             await message.answer(
-                f"✅ Этот канал уже добавлен в {chosen['display_name']}.",
+                get_text(['sources', 'destination_already_exists'], destination=chosen['display_name']),
                 parse_mode="HTML",
-                reply_markup=get_main_menu()
+                reply_markup=get_main_menu(get_text)
             )
             await state.clear()
             return
@@ -664,12 +664,12 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
             username = data.get("source_username")
             first_post_id = data.get("first_post_id")
             await message.answer(
-                f"✅ Канал @{username} успешно добавлен!\n\n"
-                f"📥 Отправлен последний пост (ID: {first_post_id})\n"
-                f"🎯 Назначение: {chosen['display_name']}\n\n"
-                f"⏳ Следующие посты будут приходить автоматически каждые 5 минут.",
+                get_text(['sources', 'destination_success_telegram'],
+                        username=username,
+                        post_id=first_post_id,
+                        destination=chosen['display_name']),
                 parse_mode="HTML",
-                reply_markup=get_main_menu()
+                reply_markup=get_main_menu(get_text)
             )
             logger.info(f"✅ Канал @{username} добавлен, отправлен 1 пост (ID: {first_post_id})")
         
@@ -677,12 +677,12 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
             username = data.get("youtube_username")
             first_video_id = data.get("first_video_id")
             await message.answer(
-                f"✅ YouTube канал @{username} успешно добавлен!\n\n"
-                f"📥 Отправлено последнее видео (ID: {first_video_id})\n"
-                f"🎯 Назначение: {chosen['display_name']}\n\n"
-                f"⏳ Следующие видео будут приходить автоматически (каждые 30 минут).",
+                get_text(['sources', 'destination_success_youtube'],
+                        username=username,
+                        video_id=first_video_id,
+                        destination=chosen['display_name']),
                 parse_mode="HTML",
-                reply_markup=get_main_menu()
+                reply_markup=get_main_menu(get_text)
             )
             logger.info(f"✅ YouTube канал @{username} добавлен, отправлено 1 видео")
         
@@ -690,9 +690,9 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
         await session.rollback()
         logger.error(f"❌ Ошибка в process_destination_choice: {e}", exc_info=True)
         await message.answer(
-            f"❌ Ошибка при добавлении канала: {str(e)[:200]}",
+            get_text(['sources', 'destination_error'], error=str(e)[:200]),
             parse_mode="HTML",
-            reply_markup=get_main_menu()
+            reply_markup=get_main_menu(get_text)
         )
     
     finally:
@@ -700,10 +700,9 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
         logger.info(f"✅ Состояние очищено")
 
 
-
 @router.message(Command(commands=["list", "mysources"]))
-@router.message(F.text.in_({"📚 Мои источники", "Мои источники"}))
-async def cmd_my_sources(message: Message, session: AsyncSession):
+@router.message(F.text.in_({"📚 Мои источники", "📚 My sources"}))
+async def cmd_my_sources(message: Message, session: AsyncSession, get_text: callable):
     """Показать источники пользователя сгруппированные по группам и темам"""
     user_id = message.from_user.id
     
@@ -711,10 +710,9 @@ async def cmd_my_sources(message: Message, session: AsyncSession):
     groups = await get_user_groups(user_id, session)
     if not groups:
         await message.answer(
-            "<b>❌ Нет активных групп</b>\n\n"
-            "<i>Сначала добавьте группу через Админ-панель или командой /activ</i>",
+            get_text(['sources', 'list_no_groups']),
             parse_mode="HTML",
-            reply_markup=get_main_menu()
+            reply_markup=get_main_menu(get_text)
         )
         return
     
@@ -743,14 +741,9 @@ async def cmd_my_sources(message: Message, session: AsyncSession):
     
     if not rows:
         await message.answer(
-            "<b>📭 Список источников пуст</b>\n\n"
-            "<i>Вы ещё не добавили ни одного источника.</i>\n\n"
-            "<b>📌 Как добавить:</b>\n"
-            "1. Нажмите '📥 Добавить канал'\n"
-            "2. Введите username канала\n"
-            "3. Выберите группу для отправки",
+            get_text(['sources', 'list_empty']),
             parse_mode="HTML",
-            reply_markup=get_main_menu()
+            reply_markup=get_main_menu(get_text)
         )
         return
     
@@ -793,7 +786,7 @@ async def cmd_my_sources(message: Message, session: AsyncSession):
         })
     
     # Формируем текст
-    text = "<b>📚 Ваши подписки по группам</b>\n\n"
+    text = get_text(['sources', 'list_title'])
     total_sources = 0
     
     # Сначала посчитаем общее количество
@@ -811,16 +804,19 @@ async def cmd_my_sources(message: Message, session: AsyncSession):
             shown_all = False
             break
             
-        text += f"👥Группа - <b>{html.escape(chat_data['title'])}</b>\n"
+        text += get_text(['sources', 'list_group_header'], name=html.escape(chat_data['title']))
         
         for topic_id, topic_data in chat_data["topics"].items():
             if sources_shown >= max_sources_to_show:
                 shown_all = False
                 break
                 
-            text += "    ─────────────────\n"
-            topic_icon = "💬Топик - " if topic_data["thread_id"] is None else "🗨️Топик - "
-            text += f"    {topic_icon} <b>{html.escape(topic_data['name'])}</b>\n"
+            text += get_text(['sources', 'list_separator'])
+            
+            if topic_data["thread_id"] is None:
+                text += get_text(['sources', 'list_topic_general'], name=html.escape(topic_data['name']))
+            else:
+                text += get_text(['sources', 'list_topic'], name=html.escape(topic_data['name']))
             
             for source in topic_data["sources"]:
                 if sources_shown >= max_sources_to_show:
@@ -835,19 +831,17 @@ async def cmd_my_sources(message: Message, session: AsyncSession):
                 else:
                     source_link = html.escape(source['name'])
                 
-                text += f"        {source['icon']} {source_link}\n"
+                text += get_text(['sources', 'list_source'], icon=source['icon'], link=source_link)
                 sources_shown += 1
         
         text += "\n"
-        text += "    ─────────────────\n"
+        text += get_text(['sources', 'list_separator'])
     
     # Если показали не всё, добавляем сообщение
     if not shown_all:
-        text += f"<i>... и ещё {total_sources - sources_shown} источников</i>\n\n"
+        text += get_text(['sources', 'list_more'], count=total_sources - sources_shown)
     
-    text += f"<b>📊 Всего подписок:</b> {total_sources}\n"
-    text += f"<b>👥 Всего групп:</b> {len(grouped_data)}\n\n"
-    text += "<b>🔧 Управление:</b> Выберите источник для управления"
+    text += get_text(['sources', 'list_total'], total=total_sources, groups=len(grouped_data))
     
     # Собираем плоский список для кнопок
     flat_sources = []
@@ -861,13 +855,12 @@ async def cmd_my_sources(message: Message, session: AsyncSession):
         text,
         parse_mode="HTML",
         disable_web_page_preview=True,
-        reply_markup=get_source_list_kb(flat_sources)
+        reply_markup=get_source_list_kb(flat_sources, get_text=get_text)
     )
 
-###############################################
 
 @router.callback_query(F.data.startswith("src_page:"))
-async def navigate_sources(callback: CallbackQuery, session: AsyncSession):
+async def navigate_sources(callback: CallbackQuery, session: AsyncSession, get_text: callable):
     """Навигация по страницам источников - обновляет ВСЁ сообщение"""
     page = int(callback.data.split(":")[1])
     
@@ -876,7 +869,9 @@ async def navigate_sources(callback: CallbackQuery, session: AsyncSession):
     groups = await get_user_groups(user_id, session)
     
     if not groups:
-        await callback.message.edit_text("❌ Нет активных групп")
+        await callback.message.edit_text(
+            get_text(['sources', 'error_no_groups_short'])
+        )
         await callback.answer()
         return
     
@@ -939,8 +934,8 @@ async def navigate_sources(callback: CallbackQuery, session: AsyncSession):
             "source_global_id": source.source_global_id
         })
     
-    # ===== ФОРМИРУЕМ ТЕКСТ (как в cmd_my_sources) =====
-    text = "<b>📚 Ваши подписки по группам</b>\n\n"
+    # ===== ФОРМИРУЕМ ТЕКСТ =====
+    text = get_text(['sources', 'list_title'])
     total_sources = 0
     
     # Считаем общее количество
@@ -961,16 +956,19 @@ async def navigate_sources(callback: CallbackQuery, session: AsyncSession):
             
         # Показываем группу только если в ней есть источники на этой странице
         group_has_sources = False
-        group_text = f"👥Группа - <b>{html.escape(chat_data['title'])}</b>\n"
+        group_text = get_text(['sources', 'list_group_header'], name=html.escape(chat_data['title']))
         
         for topic_id, topic_data in chat_data["topics"].items():
             if sources_shown >= end_source:
                 break
                 
             topic_has_sources = False
-            topic_text = "    ─────────────────\n"
-            topic_icon = "💬Топик - " if topic_data["thread_id"] is None else "🗨️Топик - "
-            topic_text += f"    {topic_icon} <b>{html.escape(topic_data['name'])}</b>\n"
+            topic_text = get_text(['sources', 'list_separator'])
+            
+            if topic_data["thread_id"] is None:
+                topic_text += get_text(['sources', 'list_topic_general'], name=html.escape(topic_data['name']))
+            else:
+                topic_text += get_text(['sources', 'list_topic'], name=html.escape(topic_data['name']))
             
             for source in topic_data["sources"]:
                 if sources_shown >= end_source:
@@ -985,7 +983,7 @@ async def navigate_sources(callback: CallbackQuery, session: AsyncSession):
                     else:
                         source_link = html.escape(source['name'])
                     
-                    topic_text += f"        {source['icon']} {source_link}\n"
+                    topic_text += get_text(['sources', 'list_source'], icon=source['icon'], link=source_link)
                     topic_has_sources = True
                     shown_anything = True
                 
@@ -1000,15 +998,13 @@ async def navigate_sources(callback: CallbackQuery, session: AsyncSession):
             text += "\n"
     
     if not shown_anything:
-        text += "<i>Нет источников на этой странице</i>\n\n"
+        text += get_text(['sources', 'list_page_empty'])
     
     # Если показали не всё, добавляем сообщение
     if sources_shown < total_sources:
-        text += f"<i>... и ещё {total_sources - sources_shown} источников</i>\n\n"
+        text += get_text(['sources', 'list_more'], count=total_sources - sources_shown)
     
-    text += f"<b>📊 Всего подписок:</b> {total_sources}\n"
-    text += f"<b>👥 Всего групп:</b> {len(grouped_data)}\n\n"
-    text += "<b>🔧 Управление:</b> Выберите источник для управления"
+    text += get_text(['sources', 'list_total'], total=total_sources, groups=len(grouped_data))
     
     # Собираем плоский список для кнопок
     flat_sources = []
@@ -1022,16 +1018,16 @@ async def navigate_sources(callback: CallbackQuery, session: AsyncSession):
         text,
         parse_mode="HTML",
         disable_web_page_preview=True,
-        reply_markup=get_source_list_kb(flat_sources, page=page)
+        reply_markup=get_source_list_kb(flat_sources, page=page, get_text=get_text)
     )
     await callback.answer()
 
-##############################################################################
+
 @router.callback_query(F.data == "close_sources")
-async def close_sources(callback: CallbackQuery):
+async def close_sources(callback: CallbackQuery, get_text: callable):
     """Закрыть список источников"""
     await callback.message.delete()
-    await callback.answer("Список закрыт")
+    await callback.answer(get_text(['sources', 'list_closed']))
 
 
 @router.callback_query(F.data == "noop")
@@ -1040,10 +1036,8 @@ async def noop_callback(callback: CallbackQuery):
     await callback.answer()
 
 
-
-
 @router.callback_query(F.data.startswith("del_source:"))
-async def delete_source_subscription(callback: CallbackQuery, session: AsyncSession):
+async def delete_source_subscription(callback: CallbackQuery, session: AsyncSession, get_text: callable):
     """Удалить подписку на источник для пользователя/группы (но не из общей БД)"""
     source_global_id = callback.data.split(":")[1]
     user_id = callback.from_user.id
@@ -1067,7 +1061,7 @@ async def delete_source_subscription(callback: CallbackQuery, session: AsyncSess
         subscriptions = result.scalars().all()
         
         if not subscriptions:
-            await callback.answer("❌ Подписка не найдена")
+            await callback.answer(get_text(['sources', 'delete_not_found']))
             return
         
         # Удаляем назначения в темах (TopicSourceAssignment)
@@ -1086,25 +1080,26 @@ async def delete_source_subscription(callback: CallbackQuery, session: AsyncSess
         await session.commit()
         
         # Показываем обновленный список
-        await callback.answer("✅ Подписка удалена")
+        await callback.answer(get_text(['sources', 'delete_success']))
         
         # Обновляем список источников (переходим на первую страницу)
-        # Можно вызвать navigate_sources с page=0 или просто обновить сообщение
-        await update_sources_list(callback.message, session, user_id, page=0)
+        await update_sources_list(callback.message, session, user_id, page=0, get_text=get_text)
         
     except Exception as e:
         await session.rollback()
         logger.error(f"❌ Ошибка удаления подписки: {e}")
-        await callback.answer("❌ Ошибка при удалении")
+        await callback.answer(get_text(['sources', 'delete_error']))
 
 
-async def update_sources_list(message: Message, session: AsyncSession, user_id: int, page: int = 0):
+async def update_sources_list(message: Message, session: AsyncSession, user_id: int, page: int = 0, get_text: callable = None):
     """Вспомогательная функция для обновления списка источников"""
     
     # Получаем группы пользователя
     groups = await get_user_groups(user_id, session)
     if not groups:
-        await message.edit_text("❌ Нет активных групп")
+        await message.edit_text(
+            get_text(['sources', 'error_no_groups_short']) if get_text else "❌ Нет активных групп"
+        )
         return
     
     group_ids = [group["chat_id"] for group in groups]
@@ -1167,7 +1162,7 @@ async def update_sources_list(message: Message, session: AsyncSession, user_id: 
         })
     
     # ===== ФОРМИРУЕМ ТЕКСТ =====
-    text = "<b>📚 Ваши подписки по группам</b>\n\n"
+    text = get_text(['sources', 'list_title']) if get_text else "<b>📚 Ваши подписки по группам</b>\n\n"
     total_sources = 0
     
     # Считаем общее количество
@@ -1248,5 +1243,5 @@ async def update_sources_list(message: Message, session: AsyncSession, user_id: 
         text,
         parse_mode="HTML",
         disable_web_page_preview=True,
-        reply_markup=get_source_list_kb(flat_sources, page=page)
+        reply_markup=get_source_list_kb(flat_sources, page=page, get_text=get_text)
     )

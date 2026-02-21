@@ -1,7 +1,10 @@
-# bot/handlers/settings.py
+# bot/handlers/settings_handler.py
 """
 Хендлеры для настроек пользователя.
-Версия: 1.0 (19 февраля 2026)
+Версия: 2.3 (20 февраля 2026)
+Изменения:
+- Исправлена смена языка (set_lang:)
+- Убраны конфликтующие хендлеры
 """
 import logging
 from aiogram import Router, F
@@ -26,17 +29,36 @@ from bot.keyboards import (
     get_settings_menu,
     get_language_menu,
     get_back_to_settings_kb,
-    get_confirm_delete_kb
+    get_confirm_delete_kb,
+    GetTextFunc
 )
+import core.utils.i18n
 from core.redis_client import redis_client
+from core.utils.i18n import create_i18n
+import bot.middlewares.i18n
+
+
 
 logger = logging.getLogger(__name__)
+logger.info(f"core.utils.i18n path: {core.utils.i18n.__file__}")
+logger.info(f"bot.middlewares.i18n path: {bot.middlewares.i18n.__file__}")
 router = Router(name="settings")
 
+# Константы для текстов кнопок (без локализации в декораторах!)
+SETTINGS_BUTTONS = ["⚙️ Настройки", "⚙️ Settings"]
+# Все остальные кнопки используют локализованный текст
 
-@router.message(F.text == "⚙️ Настройки")
+@router.callback_query(~F.data.startswith("set_lang:") & ~(F.data == "back_to_settings"))  # Исключаем set_lang и back_to_settings из дебага
+async def debug_callbacks(callback: CallbackQuery):
+    """Временный дебаг - логирует все callbacks кроме set_lang и back_to_settings"""
+    logger.info(f"🔥 CALLBACK: {callback.data}")
+    # НЕ отвечаем, чтобы не блокировать другие хендлеры
+
+
+
+@router.message(F.text.in_(SETTINGS_BUTTONS))
 @router.message(Command("settings"))
-async def cmd_settings(message: Message, state: FSMContext, session: AsyncSession):
+async def cmd_settings(message: Message, state: FSMContext, session: AsyncSession, get_text: GetTextFunc):
     """Показать меню настроек"""
     user_id = message.from_user.id
     
@@ -46,101 +68,155 @@ async def cmd_settings(message: Message, state: FSMContext, session: AsyncSessio
     prefs = result.scalar_one_or_none()
     
     if not prefs:
-        prefs = UserPreferences(user_id=user_id)
+        prefs = UserPreferences(user_id=user_id, language='en')
         session.add(prefs)
         await session.commit()
     
     # Текущий язык
-    lang_display = "404" if prefs.language == "ru" else "🇬🇧 English"
+    lang_display = get_text(['settings', 'language_ru']) if prefs.language == "ru" else get_text(['settings', 'language_en'])
     
     await message.answer(
-        f"<b>⚙️ Настройки</b>\n\n"
-        f"👤 <b>Язык:</b> {lang_display}\n"
-        f"📊 <b>Статистика:</b>\n"
-        f"• Личных подписок: ?\n"
-        f"• Групп: ?\n\n"
-        f"<i>Выберите действие:</i>",
+        get_text(['settings', 'title'], lang=lang_display),
         parse_mode="HTML",
-        reply_markup=get_settings_menu()
+        reply_markup=get_settings_menu(get_text)
     )
     await state.set_state(Settings.main)
 
 
-@router.message(Settings.main, F.text == "🌐 Язык / Language")
-async def settings_language(message: Message, state: FSMContext):
-    """Выбор языка"""
-    await message.answer(
-        "<b>🌐 Выберите язык / Choose language</b>\n\n"
-        "404\n"
-        "🇬🇧 English",
-        parse_mode="HTML",
-        reply_markup=get_language_menu()
-    )
-    await state.set_state(Settings.language)
+# ========== ЕДИНЫЙ ХЕНДЛЕР МЕНЮ НАСТРОЕК ==========
+# В aiogram при return следующий хендлер не вызывается, поэтому все кнопки обрабатываем в одном месте
+
+@router.message(Settings.main)
+async def settings_main_menu(message: Message, state: FSMContext, get_text: GetTextFunc):
+    """Обработка всех кнопок меню настроек: Назад, Язык, Удаление данных"""
+    from core.utils.i18n import create_i18n
+    
+    i18n_ru = create_i18n('ru')
+    i18n_en = create_i18n('en')
+    
+    back_ru = i18n_ru.get(['keyboards', 'settings_menu', 'back'])
+    back_en = i18n_en.get(['keyboards', 'settings_menu', 'back'])
+    lang_ru = i18n_ru.get(['keyboards', 'settings_menu', 'language'])
+    lang_en = i18n_en.get(['keyboards', 'settings_menu', 'language'])
+    delete_ru = i18n_ru.get(['keyboards', 'settings_menu', 'delete_data'])
+    delete_en = i18n_en.get(['keyboards', 'settings_menu', 'delete_data'])
+    
+    text = message.text
+    
+    # 1. Кнопка "Назад" → главное меню
+    if text in [back_ru, back_en]:
+        logger.info(f"✅ Кнопка 'Назад' распознана, возвращаемся в главное меню")
+        await message.answer(
+            get_text(['common', 'menu']),
+            parse_mode="HTML",
+            reply_markup=get_main_menu(get_text)
+        )
+        await state.clear()
+        return
+    
+    # 2. Кнопка "Язык" → выбор языка
+    if text in [lang_ru, lang_en]:
+        await message.answer(
+            get_text(['settings', 'language_prompt']),
+            parse_mode="HTML",
+            reply_markup=get_language_menu(get_text)
+        )
+        await state.set_state(Settings.language)
+        return
+    
+    # 3. Кнопка "Удалить данные" → подтверждение
+    if text in [delete_ru, delete_en]:
+        await message.answer(
+            get_text(['settings', 'delete_warning']),
+            parse_mode="HTML",
+            reply_markup=get_confirm_delete_kb(get_text)
+        )
+        await state.set_state(Settings.confirm_delete)
+        return
+    
+    # Неизвестная кнопка — показываем меню настроек снова
+    logger.debug(f"Неизвестный текст в настройках: '{text}'")
 
 
-
-@router.callback_query(Settings.language, F.data.startswith("lang:"))
-async def process_language_choice(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
-    """Обработка выбора языка"""
+# ✅ ЕДИНСТВЕННЫЙ хендлер для смены языка
+@router.callback_query(F.data.startswith("set_lang:"))
+async def process_language_callback(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Обработка смены языка через callback"""
     lang = callback.data.split(":")[1]
     user_id = callback.from_user.id
     
-    # Сохраняем язык в БД
-    stmt = select(UserPreferences).where(UserPreferences.user_id == user_id)
-    result = await session.execute(stmt)
-    prefs = result.scalar_one_or_none()
+    logger.info(f"🌐 Смена языка для пользователя {user_id} на {lang}")
     
-    if prefs:
-        prefs.language = lang
-    else:
-        prefs = UserPreferences(user_id=user_id, language=lang)
-        session.add(prefs)
-    
-    await session.commit()
-    
-    lang_name = "🚽 Русский" if lang == "ru" else "🚽 English"
-    
-    # Редактируем inline сообщение
-    await callback.message.edit_text(
-        f"✅ Язык изменён на {lang_name}",
-        parse_mode="HTML"
-    )
-    
-    # ✅ ВАЖНО: отправляем НОВОЕ сообщение с меню настроек (reply клавиатура)
-    await callback.message.answer(
-        "<b>⚙️ Настройки</b>\n\n"
-        f"👤 <b>Текущий язык:</b> {lang_name}\n\n"
-        "<i>Выберите действие:</i>",
-        parse_mode="HTML",
-        reply_markup=get_settings_menu()  # ← возвращаем клавиатуру настроек
-    )
-    
-    await state.set_state(Settings.main)
-    await callback.answer()
+    try:
+        # 1. Сохраняем язык в БД
+        stmt = select(UserPreferences).where(UserPreferences.user_id == user_id)
+        result = await session.execute(stmt)
+        prefs = result.scalar_one_or_none()
+        
+        if prefs:
+            prefs.language = lang
+            logger.info(f"✅ Обновлен язык пользователя {user_id}: {prefs.language} -> {lang}")
+        else:
+            prefs = UserPreferences(user_id=user_id, language=lang)
+            session.add(prefs)
+            logger.info(f"✅ Созданы настройки пользователя {user_id} с языком: {lang}")
+        
+        await session.commit()
+        logger.info(f"✅ Язык {lang} успешно сохранен в БД для пользователя {user_id}")
+        
+        # 2. Создаем новую локализацию для ответа
+        i18n = create_i18n(lang)
+        get_text = i18n.get
+        
+        # 3. Отвечаем пользователю
+        lang_name = get_text(['settings', f'language_{lang}'])
+        
+        await callback.answer(get_text(['settings', 'language_changed'], lang=lang_name))
+        
+        # 4. Устанавливаем состояние Settings.main СРАЗУ, чтобы кнопки работали
+        await state.set_state(Settings.main)
+        
+        # 5. Обновляем сообщение с выбором языка (если оно есть)
+        try:
+            await callback.message.edit_text(
+                get_text(['settings', 'language_changed'], lang=lang_name),
+                parse_mode="HTML",
+                reply_markup=get_back_to_settings_kb(get_text)
+            )
+            logger.info(f"✅ Сообщение с выбором языка обновлено, добавлена кнопка 'Назад'")
+        except Exception as e:
+            # Если не удалось обновить (сообщение уже изменено), просто отвечаем
+            logger.warning(f"⚠️ Не удалось обновить сообщение с выбором языка: {e}")
+            # Отправляем новое сообщение с кнопкой "Назад"
+            await callback.message.answer(
+                get_text(['settings', 'language_changed'], lang=lang_name),
+                parse_mode="HTML",
+                reply_markup=get_back_to_settings_kb(get_text)
+            )
+        
+        # 6. Отправляем новое меню настроек
+        await callback.message.answer(
+            get_text(['settings', 'title'], lang=lang_name),
+            parse_mode="HTML",
+            reply_markup=get_settings_menu(get_text)
+        )
+        
+        # 7. Отправляем обновленное главное меню
+        await callback.message.answer(
+            get_text(['common', 'menu']),
+            parse_mode="HTML",
+            reply_markup=get_main_menu(get_text)
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при смене языка: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка при смене языка", show_alert=True)
 
 
-@router.message(Settings.main, F.text == "🗑️ Удалить мои данные")
-async def settings_delete_data(message: Message, state: FSMContext):
-    """Запрос на удаление данных"""
-    await message.answer(
-        "<b>⚠️ ВНИМАНИЕ!</b>\n\n"
-        "Вы собираетесь удалить <b>ВСЕ СВОИ ДАННЫЕ</b> из бота:\n\n"
-        "• 🗂️ Все личные подписки\n"
-        "• 👥 Выход из всех групп (если вы администратор)\n"
-        "• ⚙️ Все настройки\n"
-        "• 💾 Весь кеш\n\n"
-        "<b>Это действие НЕЛЬЗЯ отменить!</b>\n\n"
-        "Группы, где вы не администратор, останутся активными для других пользователей.\n\n"
-        "Вы уверены?",
-        parse_mode="HTML",
-        reply_markup=get_confirm_delete_kb()
-    )
-    await state.set_state(Settings.confirm_delete)
 
 
 @router.callback_query(Settings.confirm_delete, F.data == "confirm_delete")
-async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: GetTextFunc):
     """ПОДТВЕРЖДЕНИЕ - удаление всех данных пользователя"""
     user_id = callback.from_user.id
     
@@ -151,44 +227,28 @@ async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, sessio
         )
         await session.execute(del_user_subs)
         
-        # 2. Получаем группы, где пользователь НЕ администратор (чтобы не трогать)
-        # Сначала получим все группы пользователя
-        groups_stmt = select(GroupMembership.telegram_chat_id).where(
-            GroupMembership.telegram_account_id == user_id,
-            GroupMembership.role.in_(("creator", "administrator"))
-        )
-        groups_result = await session.execute(groups_stmt)
-        admin_group_ids = [r[0] for r in groups_result.all()]
-        
-        # 3. Удаляем подписки, добавленные пользователем в НЕ своих группах
-        if admin_group_ids:
-            # Если есть группы где он админ, оставляем подписки там?
-            # Или тоже удаляем? Пока оставим - удаляем всё что он добавлял
-            pass
-        
-        # Удаляем все подписки, добавленные пользователем
+        # 2. Удаляем подписки, добавленные пользователем
         del_subs = delete(SourceSubscription).where(
             SourceSubscription.added_by_telegram_account_id == user_id
         )
         await session.execute(del_subs)
         
-        # 4. Удаляем темы, созданные пользователем
-        # (каскадно удалятся и назначения)
+        # 3. Удаляем темы, созданные пользователем
         from core.models import GroupTopic
         del_topics = delete(GroupTopic).where(
             GroupTopic.created_by_telegram_account_id == user_id
         )
         await session.execute(del_topics)
         
-        # 5. Удаляем настройки пользователя
+        # 4. Удаляем настройки пользователя
         del_prefs = delete(UserPreferences).where(UserPreferences.user_id == user_id)
         await session.execute(del_prefs)
         
-        # 6. Удаляем личный кеш
+        # 5. Удаляем личный кеш
         del_cache = delete(UserCachedMedia).where(UserCachedMedia.user_id == user_id)
         await session.execute(del_cache)
         
-        # 7. НЕ УДАЛЯЕМ аккаунт TelegramAccount - только помечаем
+        # 6. Помечаем аккаунт
         acc_stmt = select(TelegramAccount).where(TelegramAccount.telegram_account_id == user_id)
         acc_result = await session.execute(acc_stmt)
         account = acc_result.scalar_one_or_none()
@@ -201,25 +261,20 @@ async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, sessio
         
         await session.commit()
         
-        # 8. Очищаем Redis кеш (если есть)
+        # 7. Очищаем Redis кеш
         try:
             await redis_client.flush()
         except:
             pass
         
         await callback.message.edit_text(
-            "✅ <b>Все ваши данные удалены!</b>\n\n"
-            "• Личные подписки удалены\n"
-            "• Подписки в группах удалены\n"
-            "• Настройки сброшены\n"
-            "• Кеш очищен\n\n"
-            "Вы можете начать заново с команды /start",
+            get_text(['settings', 'delete_success']),
             parse_mode="HTML"
         )
         await callback.message.answer(
-            "🏠 <b>Главное меню</b>",
+            get_text(['common', 'menu']),
             parse_mode="HTML",
-            reply_markup=get_main_menu()
+            reply_markup=get_main_menu(get_text)
         )
         await state.clear()
         
@@ -227,7 +282,7 @@ async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, sessio
         await session.rollback()
         logger.error(f"❌ Ошибка при удалении данных пользователя {user_id}: {e}")
         await callback.message.edit_text(
-            f"❌ Ошибка при удалении данных: {str(e)[:200]}",
+            get_text(['settings', 'delete_error'], error=str(e)[:200]),
             parse_mode="HTML"
         )
     
@@ -235,41 +290,65 @@ async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, sessio
 
 
 @router.callback_query(Settings.confirm_delete, F.data == "cancel_delete")
-async def cancel_delete_data(callback: CallbackQuery, state: FSMContext):
+async def cancel_delete_data(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: GetTextFunc):
     """Отмена удаления данных"""
+    user_id = callback.from_user.id
+    
+    # Получаем текущий язык пользователя из БД
+    stmt = select(UserPreferences).where(UserPreferences.user_id == user_id)
+    result = await session.execute(stmt)
+    prefs = result.scalar_one_or_none()
+    
+    # Определяем язык для отображения
+    current_lang = prefs.language if prefs else 'en'
+    lang_display = get_text(['settings', 'language_ru']) if current_lang == "ru" else get_text(['settings', 'language_en'])
+    
     await callback.message.edit_text(
-        "✅ Удаление данных отменено"
+        get_text(['settings', 'delete_cancelled'])
     )
     await callback.message.answer(
-        "<b>⚙️ Настройки</b>",
+        get_text(['settings', 'title'], lang=lang_display),
         parse_mode="HTML",
-        reply_markup=get_settings_menu()
+        reply_markup=get_settings_menu(get_text)
     )
     await state.set_state(Settings.main)
     await callback.answer()
 
-
-# Добавьте в конец bot/handlers/settings.py
 
 @router.callback_query(F.data == "back_to_settings")
-async def back_to_settings(callback: CallbackQuery, state: FSMContext):
+async def back_to_settings(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: GetTextFunc):
     """Вернуться в меню настроек"""
-    await callback.message.delete()
+    user_id = callback.from_user.id
+    
+    logger.info(f"🔙 Возврат в настройки для пользователя {user_id}")
+    
+    # Получаем текущий язык пользователя из БД
+    stmt = select(UserPreferences).where(UserPreferences.user_id == user_id)
+    result = await session.execute(stmt)
+    prefs = result.scalar_one_or_none()
+    
+    # Определяем язык для отображения
+    current_lang = prefs.language if prefs else 'en'
+    
+    # Создаем локализацию с правильным языком
+    from core.utils.i18n import create_i18n
+    i18n = create_i18n(current_lang)
+    get_text = i18n.get
+    
+    lang_display = get_text(['settings', 'language_ru']) if current_lang == "ru" else get_text(['settings', 'language_en'])
+    
+    try:
+        await callback.message.delete()
+    except Exception as e:
+        logger.warning(f"Не удалось удалить сообщение: {e}")
+    
     await callback.message.answer(
-        "<b>⚙️ Настройки</b>",
+        get_text(['settings', 'title'], lang=lang_display),
         parse_mode="HTML",
-        reply_markup=get_settings_menu()
+        reply_markup=get_settings_menu(get_text)
     )
     await state.set_state(Settings.main)
     await callback.answer()
 
 
-@router.message(Settings.main, F.text == "← Назад")
-async def settings_back_to_main(message: Message, state: FSMContext):
-    """Назад в главное меню"""
-    await message.answer(
-        "🏠 <b>Главное меню</b>",
-        parse_mode="HTML",
-        reply_markup=get_main_menu()
-    )
-    await state.clear()
+
