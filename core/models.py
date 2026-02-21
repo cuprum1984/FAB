@@ -73,9 +73,15 @@ class ManagedGroup(Base):
         Index('idx_group_chat_type', 'chat_type'),
         Index('idx_group_added_timestamp', 'bot_added_timestamp'),
         Index('idx_group_restrict', 'restrict_saving_content'),
+        Index('idx_group_creator', 'creator_id'),
     )
 
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    creator_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey("telegram_accounts.telegram_account_id", ondelete="SET NULL"),
+        nullable=True
+    )
     telegram_chat_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     chat_type: Mapped[str] = mapped_column(String(50), nullable=False)
     bot_role_in_group: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -95,6 +101,8 @@ class ManagedGroup(Base):
         back_populates="group",
         cascade="all, delete-orphan"
     )
+    
+    creator: Mapped["TelegramAccount"] = relationship()
 
 
 class GroupMembership(Base):

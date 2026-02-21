@@ -50,7 +50,7 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession):
             session.add(user)
             await session.commit()
             logger.info(f"✅ Новый пользователь сохранён в БД: {user_id}")
-            
+
             welcome_text = (
                 f"👋 <b>Добро пожаловать, {first_name}!</b>\n\n"
                 f"🤖 <b>MyAggryBot</b> - автоматическая доставка контента из Telegram и YouTube каналов в ваши группы.\n\n"
@@ -70,8 +70,10 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession):
             user.telegram_first_name = first_name
             user.telegram_last_name = last_name
             user.last_activity = None
+            if not user.is_active:
+                user.is_active = True
             await session.commit()
-            
+
             welcome_text = f"👋 <b>С возвращением, {first_name}!</b>\n\n🤖 Бот готов к работе."
         
         await state.clear()
@@ -149,14 +151,23 @@ async def cmd_menu(message: Message, state: FSMContext, session: AsyncSession):
 @router.message(F.text == "🔄 Обновить")
 async def cmd_refresh(message: Message, state: FSMContext, session: AsyncSession):
     """Обновить интерфейс (как /start, но мягче)"""
-    
+
     # 1. Сбрасываем состояние (если пользователь где-то застрял)
     await state.clear()
-    
-    # 2. Показываем приветствие (как /start)
+
+    # 2. Проверяем, есть ли пользователь в БД
+    stmt = select(TelegramAccount).where(TelegramAccount.telegram_account_id == message.from_user.id)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if user and not user.is_active:
+        user.is_active = True
+        await session.commit()
+
+    # 3. Показываем приветствие (как /start)
     user = message.from_user
     first_name = user.first_name or "Пользователь"
-    
+
     await message.answer(
         f"🔄 <b>Интерфейс обновлён, {first_name}!</b>\n\n"
         f"🤖 <b>MyAggryBot</b> готов к работе.\n\n"
