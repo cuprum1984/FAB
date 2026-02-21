@@ -141,8 +141,8 @@ MESSAGES = {
         },
         
         # Delete confirmation
-        "confirm_delete": "✅ YES, delete everything",
-        "cancel_delete": "❌ NO, cancel",
+        "confirm_delete": "_✅ YES, delete everything",
+        "cancel_delete": "_❌ NO, cancel",
         
         # Sources list
         "sources_list": {
@@ -401,6 +401,7 @@ MESSAGES = {
                           "• 👥 Leave all groups (if you are an admin)\n"
                           "• ⚙️ All settings\n"
                           "• 💾 All cache\n\n"
+                          "TEST!!!\n"
                           "<b>This action CANNOT be undone!</b>\n\n"
                           "Groups where you are not an admin will remain active for other users.\n\n"
                           "Are you sure?",
