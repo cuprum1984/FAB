@@ -123,8 +123,8 @@ MESSAGES = {
         },
         
         "language_menu": {
-            "en": "English",
-            "ru": "Русский",
+            "ru": "🇷🇺 Русский",
+            "en": "🇬🇧 English",
             "back": "← Назад",
         },
         
@@ -352,11 +352,11 @@ MESSAGES = {
                  "<i>Выберите действие:</i>",
         
         "language_prompt": "<b>🌐 Выберите язык</b>\n\n"
-                           "English\n"
-                           "Русский",
+                           "🇷🇺 Русский\n"
+                           "🇬🇧 English",
         "language_changed": "✅ Язык изменён на {lang}",
-        "language_en": "English",
-        "language_ru": "Русский",
+        "language_ru": "🇷🇺 Русский",
+        "language_en": "🇬🇧 English",
         "language_back": "← Назад в настройки",
         
         "delete_warning": "<b>⚠️ ВНИМАНИЕ!</b>\n\n"

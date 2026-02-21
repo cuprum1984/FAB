@@ -11,6 +11,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
+import fnmatch
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +144,23 @@ class RedisClient:
                 await self._redis.close()
             self._redis = None
             logger.info("🔌 Redis соединение закрыто")
+
+    async def keys(self, pattern: str):
+        """Получить список ключей, соответствующих шаблону"""
+        client = await self.client
+        if hasattr(client, 'keys'):
+            return await client.keys(pattern)
+        # fallback for FileFakeRedis
+        return [k for k in client.data.keys() if fnmatch.fnmatch(k, pattern)]
+
+    async def delete(self, *keys):
+        """Удалить указанные ключи"""
+        client = await self.client
+        if hasattr(client, 'delete'):
+            return await client.delete(*keys)
+        # fallback for FileFakeRedis
+        for k in keys:
+            await client.delete(k)
 
 
 # Глобальный экземпляр

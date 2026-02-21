@@ -18,6 +18,7 @@ from typing import Dict, List, Optional
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 
 from core.models import (
     ContentSource, 
@@ -35,7 +36,8 @@ from core.redis_client import get_cached_last_post, set_cached_last_post
 from core.services.destination_service import (
     get_source_last_post_id,
     update_source_last_post_id,
-    invalidate_source_cache_by_username
+    invalidate_source_cache_by_username,
+    deactivate_group_by_chat_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,34 +118,25 @@ class MonitoringService:
                 # Для YouTube проверяем username и feed_url
                 if source.feed_url and not URLSecurity.is_allowed_youtube(source.feed_url):
                     logger.error(f"❌ YouTube источник {source.source_global_id} имеет небезопасный URL: {source.feed_url}")
-                    source.is_active = False
-                    await session.flush()
                     return False
-                
-                # Проверяем username на опасные символы
+
                 if source.youtube_username:
                     dangerous_patterns = ['../', '..\\', '%2e', '%2f', ';', '|', '`', '$', '(', ')']
                     for pattern in dangerous_patterns:
                         if pattern in source.youtube_username.lower():
                             logger.error(f"❌ YouTube источник {source.source_global_id} имеет опасный username: {source.youtube_username}")
-                            source.is_active = False
-                            await session.flush()
                             return False
-                
+
             elif source.source_type == "telegram":
                 if source.telegram_username:
                     dangerous_patterns = ['../', '..\\', '%2e', '%2f', ';', '|', '`', '$', '(', ')']
                     for pattern in dangerous_patterns:
                         if pattern in source.telegram_username.lower():
                             logger.error(f"❌ Telegram источник {source.source_global_id} имеет опасный username: {source.telegram_username}")
-                            source.is_active = False
-                            await session.flush()
                             return False
-                    
+
                     if len(source.telegram_username) < 3 or len(source.telegram_username) > 32:
                         logger.error(f"❌ Telegram источник {source.source_global_id} имеет некорректную длину username")
-                        source.is_active = False
-                        await session.flush()
                         return False
                 
             return True
@@ -468,10 +461,11 @@ class MonitoringService:
                         post=post,
                         file_id=file_id,
                         assignment=assignment,
-                        source=source
+                        source=source,
+                        session=session,
                     )
                 else:
-                    await self._send_text_to_assignment(post, assignment, source)
+                    await self._send_text_to_assignment(post, assignment, source, session)
                 
                 await asyncio.sleep(0.3)
             except Exception as e:
@@ -481,146 +475,153 @@ class MonitoringService:
     # 🔥 ОТПРАВКА В ТЕМЫ
     # ----------------------------------------------------------------------
     
+    def _should_deactivate_chat(self, e: Exception) -> bool:
+        """Проверить, нужно ли деактивировать чат (бот заблокирован / чат не найден)."""
+        err = str(e).lower()
+        return "bot was blocked" in err or "chat not found" in err or "user is deactivated" in err
+
     async def _send_media_to_assignment(
         self,
         post: Dict,
         file_id: str,
         assignment: TopicSourceAssignment,
-        source: ContentSource
+        source: ContentSource,
+        session: AsyncSession,
     ):
         """Отправить медиа с file_id"""
+        topic = assignment.topic
+        if not topic or topic.is_closed:
+            logger.warning(f"⚠️ Тема закрыта или не существует: {assignment.topic_identifier}")
+            return
+
+        text = post.get('text', '').strip()
+        source_name = source.title or f"@{source.telegram_username}"
+        caption = f"<b>{source_name}</b>\n\n{text}"
+        if len(caption) > 1024:
+            caption = caption[:1021] + "..."
+
+        chat_id = topic.telegram_chat_id
+        logger.info(f"📤 Отправляю медиа в тему '{topic.topic_name}' (chat_id={chat_id}, thread_id={topic.telegram_thread_id})")
+
         try:
-            topic = assignment.topic
-            
-            if not topic or topic.is_closed:
-                logger.warning(f"⚠️ Тема закрыта или не существует: {assignment.topic_identifier}")
-                return
-            
-            text = post.get('text', '').strip()
-            source_name = source.title or f"@{source.telegram_username}"
-            
-            caption = f"<b>{source_name}</b>\n\n{text}"
-            if len(caption) > 1024:
-                caption = caption[:1021] + "..."
-            
-            logger.info(f"📤 Отправляю медиа в тему '{topic.topic_name}' (chat_id={topic.telegram_chat_id}, thread_id={topic.telegram_thread_id})")
-            
             try:
                 await self.bot.send_photo(
-                    chat_id=topic.telegram_chat_id,
+                    chat_id=chat_id,
                     photo=file_id,
                     caption=caption,
                     parse_mode="HTML",
-                    message_thread_id=topic.telegram_thread_id
+                    message_thread_id=topic.telegram_thread_id,
                 )
                 logger.info(f"✅ Медиа отправлено в тему '{topic.topic_name}'")
                 return
-                
+            except (TelegramForbiddenError, TelegramBadRequest) as photo_err:
+                if self._should_deactivate_chat(photo_err):
+                    await deactivate_group_by_chat_id(session, chat_id)
+                    logger.warning(f"⚠️ Чат {chat_id} деактивирован после ошибки отправки медиа: {photo_err}")
+                    return
+                raise
             except Exception as photo_error:
                 logger.warning(f"⚠️ Не удалось отправить как фото: {photo_error}")
-                
                 try:
                     await self.bot.send_document(
-                        chat_id=topic.telegram_chat_id,
+                        chat_id=chat_id,
                         document=file_id,
                         caption=caption,
                         parse_mode="HTML",
-                        message_thread_id=topic.telegram_thread_id
+                        message_thread_id=topic.telegram_thread_id,
                     )
                     logger.info(f"✅ Документ отправлен в тему '{topic.topic_name}'")
                     return
-                    
+                except (TelegramForbiddenError, TelegramBadRequest) as doc_err:
+                    if self._should_deactivate_chat(doc_err):
+                        await deactivate_group_by_chat_id(session, chat_id)
+                        logger.warning(f"⚠️ Чат {chat_id} деактивирован после ошибки отправки документа: {doc_err}")
+                        return
+                    raise
                 except Exception as doc_error:
                     logger.error(f"❌ Не удалось отправить медиа: {doc_error}")
-                    await self._send_text_to_assignment(post, assignment, source)
-            
+                    await self._send_text_to_assignment(post, assignment, source, session)
         except Exception as e:
             logger.error(f"❌ Ошибка отправки медиа: {e}", exc_info=True)
             raise
     
     async def _send_text_to_assignment(
-        self, 
-        post: Dict, 
+        self,
+        post: Dict,
         assignment: TopicSourceAssignment,
-        source: ContentSource
+        source: ContentSource,
+        session: AsyncSession,
     ):
         """Отправить только текст"""
-        try:
-            topic = assignment.topic
-            
-            if not topic or topic.is_closed:
-                logger.warning(f"⚠️ Тема закрыта или не существует: {assignment.topic_identifier}")
-                return
-            
-            message_text = self._format_telegram_post_message(post, source)
-            
-            logger.info(f"📤 Отправляю текст в тему '{topic.topic_name}' (chat_id={topic.telegram_chat_id}, thread_id={topic.telegram_thread_id})")
-            
-            await self._send_message_with_retry(
-                chat_id=topic.telegram_chat_id,
-                text=message_text,
-                thread_id=topic.telegram_thread_id
-            )
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка отправки текста: {e}", exc_info=True)
-            raise
+        topic = assignment.topic
+        if not topic or topic.is_closed:
+            logger.warning(f"⚠️ Тема закрыта или не существует: {assignment.topic_identifier}")
+            return
+
+        message_text = self._format_telegram_post_message(post, source)
+        logger.info(f"📤 Отправляю текст в тему '{topic.topic_name}' (chat_id={topic.telegram_chat_id}, thread_id={topic.telegram_thread_id})")
+
+        await self._send_message_with_retry(
+            chat_id=topic.telegram_chat_id,
+            text=message_text,
+            thread_id=topic.telegram_thread_id,
+            session=session,
+        )
     
     async def _send_message_with_retry(
         self,
         chat_id: int,
         text: str,
         thread_id: Optional[int] = None,
-        max_retries: int = 3
+        session: Optional[AsyncSession] = None,
+        max_retries: int = 3,
     ):
-        """Отправить сообщение с повторными попытками и подробным логированием ошибок"""
+        """Отправить сообщение с повторными попытками. При Forbidden/ChatNotFound деактивирует чат."""
         for attempt in range(max_retries):
             try:
                 logger.info(f"📤 Попытка {attempt + 1}/{max_retries}: отправка в chat_id={chat_id}, thread_id={thread_id}")
-                
+
                 await self.bot.send_message(
                     chat_id=chat_id,
                     message_thread_id=thread_id,
                     text=text,
                     parse_mode="HTML",
-                    disable_web_page_preview=False
+                    disable_web_page_preview=False,
                 )
-                
+
                 logger.info(f"✅ Сообщение успешно отправлено в chat_id={chat_id}, thread_id={thread_id}")
                 return
-                
+
+            except (TelegramForbiddenError, TelegramBadRequest) as e:
+                if self._should_deactivate_chat(e):
+                    if session:
+                        await deactivate_group_by_chat_id(session, chat_id)
+                    logger.warning(f"⚠️ Чат {chat_id} деактивирован после ошибки отправки: {e}")
+                else:
+                    logger.error(f"❌ Ошибка отправки (попытка {attempt + 1}): {e}")
+                return
+
             except Exception as e:
                 error = str(e).lower()
                 error_type = type(e).__name__
-                
                 logger.error(f"❌ Ошибка отправки (попытка {attempt + 1}): {error_type} - {e}")
-                
+
                 if "too many requests" in error or "flood" in error:
                     wait = 5 * (attempt + 1)
                     logger.warning(f"⏳ Flood control, жду {wait}с...")
                     await asyncio.sleep(wait)
-                    
                 elif "message thread not found" in error:
                     logger.error(f"❌ Тема {thread_id} не найдена в чате {chat_id}")
                     return
-                    
-                elif "chat not found" in error:
-                    logger.error(f"❌ Чат {chat_id} не найден! Бот удалён из группы?")
-                    return
-                    
-                elif "not enough rights" in error or "forbidden" in error:
+                elif "not enough rights" in error:
                     logger.error(f"❌ Недостаточно прав для отправки в чат {chat_id}")
                     return
-                    
                 elif "message is too long" in error:
                     logger.warning(f"⚠️ Сообщение слишком длинное, обрезаю...")
                     text = text[:3000] + "...\n\n[сообщение обрезано]"
                     if attempt < max_retries - 1:
                         continue
-                    else:
-                        logger.error(f"❌ Не удалось отправить даже после обрезания")
-                        return
-                        
+                    return
                 else:
                     if attempt < max_retries - 1:
                         wait = 2 * (attempt + 1)
