@@ -215,6 +215,26 @@ async def create_user_channel_subscription(
         raise
 
 
+async def deactivate_group_by_chat_id(session: AsyncSession, chat_id: int) -> bool:
+    """
+    Пометить группу как неактивную (бот удалён/заблокирован).
+    Возвращает True, если группа была найдена и обновлена.
+    """
+    try:
+        stmt = select(ManagedGroup).where(ManagedGroup.telegram_chat_id == chat_id)
+        result = await session.execute(stmt)
+        group = result.scalar_one_or_none()
+        if group:
+            group.is_bot_active_in_group = False
+            await session.flush()
+            logger.warning(f"🏚️ Группа {chat_id} помечена неактивной (is_bot_active_in_group=False)")
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"❌ Ошибка деактивации группы {chat_id}: {e}")
+        return False
+
+
 async def get_user_groups(
     account_id: int,
     session: AsyncSession,
