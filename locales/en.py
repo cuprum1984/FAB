@@ -135,8 +135,8 @@ MESSAGES = {
         
         # Language menu
         "language_menu": {
-            "ru": "🇷🇺 Русский",
-            "en": "🇬🇧 English",
+            "en": "English",
+            "ru": "Русский",
             "back": "← Back",
         },
         
@@ -382,11 +382,11 @@ MESSAGES = {
         
         # Language
         "language_prompt": "<b>🌐 Choose language</b>\n\n"
-                           "🇷🇺 Русский\n"
-                           "🇬🇧 English",
+                           "English\n"
+                           "Русский",
         "language_changed": "✅ Language changed to {lang}",
-        "language_ru": "🇷🇺 Русский",
-        "language_en": "🇬🇧 English",
+        "language_en": "English",
+        "language_ru": "Русский",
         "language_back": "← Back to settings",
         
         # Delete data
