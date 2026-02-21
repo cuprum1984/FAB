@@ -44,43 +44,9 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         )
         session.add(new_account)
         
-        if not user:
-            # Создаём нового пользователя
-            user = TelegramAccount(
-                telegram_account_id=user_id,
-                telegram_username=username,
-                telegram_first_name=first_name,
-                telegram_last_name=last_name,
-                language_code=message.from_user.language_code
-            )
-            session.add(user)
-            await session.commit()
-            logger.info(f"✅ Новый пользователь сохранён в БД: {user_id}")
-
-            welcome_text = (
-                f"👋 <b>Добро пожаловать, {first_name}!</b>\n\n"
-                f"🤖 <b>MyAggryBot</b> - автоматическая доставка контента из Telegram и YouTube каналов в ваши группы.\n\n"
-                f"<b>📌 Что умеет бот:</b>\n"
-                f"• Добавлять Telegram каналы (@username)\n"
-                f"• Добавлять YouTube каналы (по ссылке)\n"
-                f"• Отправлять новые посты в темы групп\n"
-                f"• Работать с несколькими группами\n\n"
-                f"<b>🔧 Для начала:</b>\n"
-                f"1. Добавьте бота в группу и сделайте администратором\n"
-                f"2. В группе введите команду /activ\n"
-                f"3. Возвращайтесь сюда и нажмите '📥 Добавить канал'"
-            )
-        else:
-            # Обновляем информацию о пользователе
-            user.telegram_username = username
-            user.telegram_first_name = first_name
-            user.telegram_last_name = last_name
-            user.last_activity = None
-            if not user.is_active:
-                user.is_active = True
-            await session.commit()
-
-            welcome_text = f"👋 <b>С возвращением, {first_name}!</b>\n\n🤖 Бот готов к работе."
+        prefs = UserPreferences(user_id=user_id, language=new_account.language_code)
+        session.add(prefs)
+        await session.commit()
         
         text = get_text(['common', 'start_new'], first_name=first_name)
     else:
@@ -142,23 +108,14 @@ async def cmd_cancel(message: Message, state: FSMContext, session: AsyncSession,
 @router.message(F.text.in_({"🔄 Обновить", "🔄 Refresh"}))
 async def cmd_refresh(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
     """Обновить интерфейс (как /start, но мягче)"""
-
-    # 1. Сбрасываем состояние (если пользователь где-то застрял)
+    
+    # Сбрасываем состояние
     await state.clear()
-
-    # 2. Проверяем, есть ли пользователь в БД
-    stmt = select(TelegramAccount).where(TelegramAccount.telegram_account_id == message.from_user.id)
-    result = await session.execute(stmt)
-    user = result.scalar_one_or_none()
-
-    if user and not user.is_active:
-        user.is_active = True
-        await session.commit()
-
-    # 3. Показываем приветствие (как /start)
+    
+    # Показываем приветствие
     user = message.from_user
-    first_name = user.first_name or "Пользователь"
-
+    first_name = user.first_name or "User"
+    
     await message.answer(
         get_text(['refresh', 'success'], first_name=first_name),
         parse_mode="HTML",

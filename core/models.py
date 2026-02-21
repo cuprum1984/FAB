@@ -38,7 +38,6 @@ class TelegramAccount(Base):
     telegram_first_name: Mapped[str] = mapped_column(String(128), nullable=False)
     telegram_last_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     is_bot_blocked: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, server_default="true", nullable=False)
     language_code: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     registration_timestamp: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     last_activity: Mapped[Optional[datetime]] = mapped_column(nullable=True)
@@ -73,15 +72,9 @@ class ManagedGroup(Base):
         Index('idx_group_chat_type', 'chat_type'),
         Index('idx_group_added_timestamp', 'bot_added_timestamp'),
         Index('idx_group_restrict', 'restrict_saving_content'),
-        Index('idx_group_creator', 'creator_id'),
     )
 
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    creator_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger,
-        ForeignKey("telegram_accounts.telegram_account_id", ondelete="SET NULL"),
-        nullable=True
-    )
     telegram_chat_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     chat_type: Mapped[str] = mapped_column(String(50), nullable=False)
     bot_role_in_group: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -101,8 +94,6 @@ class ManagedGroup(Base):
         back_populates="group",
         cascade="all, delete-orphan"
     )
-    
-    creator: Mapped["TelegramAccount"] = relationship()
 
 
 class GroupMembership(Base):
