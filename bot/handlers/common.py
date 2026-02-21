@@ -26,6 +26,8 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
     """Обработчик команды /start"""
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "User"
+    last_name = message.from_user.last_name or ""
+    username = message.from_user.username
     
     await state.clear()
     
