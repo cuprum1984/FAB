@@ -1,10 +1,12 @@
 # bot/handlers/admin.py
 """
 Хендлеры для админ-панели и управления группами/темами.
-Версия: 4.0 (20 февраля 2026)
+Версия: 4.1 (21 февраля 2026)
 Изменения:
 - Добавлена локализация (i18n)
 - Все тексты вынесены в locales/
+- Исправлена команда /activ: убрана клавиатура из ответа в группе
+- Добавлена отправка подтверждения в ЛС
 """
 import html
 import logging
@@ -160,15 +162,15 @@ async def manage_group_selected(message: Message, state: FSMContext, session: As
     await state.set_state(AdminPanel.main)
 
 
+
 @router.message(Command("activ"))
 async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_text: callable):
     """Активация группы."""
+    # Middleware уже гарантирует, что мы здесь только в группе/супергруппе
+    # Но на всякий случай добавим проверку
     if message.chat.type not in ("group", "supergroup"):
-        await message.answer(
-            get_text(['admin', 'activ_group_only'])
-        )
-        return
-
+        return  # middleware должно было отсечь, но для надёжности
+    
     chat_id = message.chat.id
     user_id = message.from_user.id
 
@@ -190,7 +192,6 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
     try:
         bot_member = await bot.get_chat_member(chat_id, bot.id)
         
-        # Проверяем, что бот администратор
         if not isinstance(bot_member, ChatMemberAdministrator):
             await message.answer(
                 get_text(['admin', 'activ_bot_not_admin']),
@@ -198,7 +199,6 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
             )
             return
         
-        # Проверяем права на отправку сообщений
         can_post = getattr(bot_member, 'can_post_messages', None)
         can_send = getattr(bot_member, 'can_send_messages', None)
         
@@ -227,16 +227,33 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
                 existing_group.is_bot_active_in_group = True
                 existing_group.bot_role_in_group = bot_member.status
                 await session.commit()
+                
+                # ✅ В ГРУППЕ: только текст, БЕЗ клавиатуры
                 await message.answer(
                     get_text(['admin', 'activ_reactivated'], 
                             name=html.escape(message.chat.title or get_text(['admin', 'no_title']))),
                     parse_mode="HTML"
+                    # НЕТ reply_markup!
                 )
+                
+                # ✅ В ЛС: отправляем клавиатуру для продолжения
+                try:
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text=get_text(['admin', 'activ_success_dm'], 
+                                     name=html.escape(message.chat.title or get_text(['admin', 'no_title']))),
+                        parse_mode="HTML",
+                        reply_markup=get_admin_panel_menu(get_text)
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось отправить сообщение в ЛС пользователю {user_id}: {e}")
             else:
+                # ✅ В ГРУППЕ: только текст
                 await message.answer(
                     get_text(['admin', 'activ_already_active'],
                             name=html.escape(message.chat.title or get_text(['admin', 'no_title']))),
                     parse_mode="HTML"
+                    # НЕТ reply_markup!
                 )
         else:
             # Создаём новую группу
@@ -264,7 +281,6 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
             # Создаём General тему
             general_identifier = TopicUtils.generate_topic_identifier(chat_id, None)
             
-            # Проверяем, есть ли уже General тема
             topic_stmt = select(GroupTopic).where(GroupTopic.topic_identifier == general_identifier)
             topic_result = await session.execute(topic_stmt)
             existing_topic = topic_result.scalar_one_or_none()
@@ -282,12 +298,26 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
                 await session.commit()
                 logger.info(f"✅ Создана General тема для группы {chat_id}")
             
+            # ✅ В ГРУППЕ: только текст, БЕЗ клавиатуры
             await message.answer(
                 get_text(['admin', 'activ_success'],
                         name=html.escape(message.chat.title or get_text(['admin', 'no_title'])),
                         chat_id=chat_id),
                 parse_mode="HTML"
+                # НЕТ reply_markup!
             )
+            
+            # ✅ В ЛС: отправляем клавиатуру для продолжения
+            try:
+                await bot.send_message(
+                    chat_id=user_id,
+                    text=get_text(['admin', 'activ_success_dm'],
+                                 name=html.escape(message.chat.title or get_text(['admin', 'no_title']))),
+                    parse_mode="HTML",
+                    reply_markup=get_admin_panel_menu(get_text)
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось отправить сообщение в ЛС пользователю {user_id}: {e}")
             
     except Exception as e:
         await session.rollback()
@@ -296,6 +326,7 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
             get_text(['admin', 'activ_error'], error=html.escape(str(e)[:200])),
             parse_mode="HTML"
         )
+
 
 
 @router.message(Command("mytopics"))

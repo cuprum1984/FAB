@@ -82,7 +82,7 @@ MESSAGES = {
         },
         
         # Main menu title (for back buttons)
-        "main_menu_title": "🏠 Main menu",  # ← ДОБАВЛЕНО
+        "main_menu_title": "🏠 Main menu",
         
         # Admin panel
         "admin_menu": {
@@ -118,7 +118,7 @@ MESSAGES = {
         # Cancel/back
         "cancel": "❌ Cancel",
         "back": "← Back",
-        "back_to_settings": "← Back to settings",  # ← ДОБАВЛЕНО
+        "back_to_settings": "← Back to settings",
         
         # Confirmations
         "confirm_add": "✅ Yes, add",
@@ -207,6 +207,11 @@ MESSAGES = {
                          "• Register topics via /plus\n"
                          "• Manage via Admin Panel",
         "activ_error": "<b>❌ Error activating group:</b>\n<code>{error}</code>",
+        
+        # ✅ НОВЫЙ КЛЮЧ: сообщение в ЛС после активации группы
+        "activ_success_dm": "<b>✅ Group activated!</b>\n\n"
+                            "Group '<b>{name}</b>' has been successfully activated.\n\n"
+                            "You can now manage it via the admin panel:",
         
         # /mytopics command
         "mytopics_title": "<b>🗂️ Your registered topics</b>\n\n",
@@ -407,6 +412,24 @@ MESSAGES = {
                           "You can start over with the /start command",
         "delete_cancelled": "✅ Deletion cancelled",
         "delete_error": "❌ Error deleting data: {error}",
+    },
+    
+    # ========== MIDDLEWARE MESSAGES ==========
+    "middleware": {
+        # Для команд, вызванных в ЛС, но предназначенных для групп
+        "group_only_command": (
+            "⚠️ Commands /activ and /plus only work in groups and topics!\n\n"
+            "1. Add the bot to a group\n"
+            "2. Make it administrator\n"
+            "3. In the group, enter /activ\n"
+            "4. In the desired topic, enter /plus"
+        ),
+        
+        # Для команд, вызванных в группах, но предназначенных для ЛС
+        "private_only_command": (
+            "⚠️ This command is only available in private messages with the bot.\n"
+            "Write to me in DM: @MyAggryBot"
+        ),
     },
     
     # ========== HTML FORMATTER (html_formatter.py) ==========
