@@ -27,8 +27,7 @@ from bot.keyboards import (
     get_admin_panel_menu,
     get_main_menu,
     get_groups_menu,
-    get_back_to_main_kb,
-    GetTextFunc
+    get_back_to_main_kb
 )
 from core.services.destination_service import (
     get_user_groups,
@@ -133,7 +132,7 @@ async def open_admin_panel(message: Message, state: FSMContext, get_text: callab
     await state.set_state(AdminPanel.main)
 
 @router.message(AdminPanel.main, F.text == "👥 Управление группами")
-async def manage_groups_start(message: Message, session: AsyncSession, state: FSMContext, get_text: callable):
+async def manage_groups_start(message: Message, session: AsyncSession, state: FSMContext):
     """Управление группами."""
     user_id = message.from_user.id
 
@@ -158,30 +157,30 @@ async def manage_groups_start(message: Message, session: AsyncSession, state: FS
     )
     await state.set_state(AdminPanel.group_selected)
 
-
-
-
 @router.message(AdminPanel.group_selected)
 async def manage_group_selected(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
     """Пользователь выбрал конкретную группу."""
     data = await state.get_data()
     groups = data.get("groups_for_manage", [])
 
+    # Если groups нет в состоянии, получаем заново
     if not groups:
         user_id = message.from_user.id
         groups = await get_user_groups(user_id, session)
 
     if message.text == "← Назад в Админ-панель":
-        await message.answer("👨‍💼 <b>Админ-панель</b>", parse_mode="HTML", reply_markup=get_admin_panel_menu(get_text))
+        await message.answer("👨‍💼 <b>Админ-панель</b>", parse_mode="HTML", reply_markup=get_admin_panel_menu())
         await state.set_state(AdminPanel.main)
         return
 
     if message.text == "🏠 Главное меню":
-        await message.answer("🏠 <b>Главное меню</b>", parse_mode="HTML", reply_markup=get_main_menu(get_text))
+        await message.answer("🏠 <b>Главное меню</b>", parse_mode="HTML", reply_markup=get_main_menu())
         await state.clear()
         return
 
+    # Находим выбранную группу
     selected_text = message.text.strip()
+    # Убираем эмодзи статуса если есть
     if selected_text.startswith(("✅ ", "❌ ")):
         selected_text = selected_text[2:]
 
@@ -201,13 +200,7 @@ async def manage_group_selected(message: Message, state: FSMContext, session: As
 
     chat_id = selected_group["chat_id"]
 
-    # --- ИСПРАВЛЕНИЕ: Определение status_text ---
-    is_active = selected_group.get("is_active", True)
-    status_emoji = "✅" if is_active else "❌"
-    status_label = get_text(['admin', 'active']) if is_active else get_text(['admin', 'inactive'])
-    status_text = f"{status_emoji} {status_label}"
-    # --------------------------------------------
-
+    # Получаем темы группы из базы
     topics_stmt = select(GroupTopic).where(
         GroupTopic.telegram_chat_id == chat_id,
         GroupTopic.is_closed == False
@@ -216,6 +209,7 @@ async def manage_group_selected(message: Message, state: FSMContext, session: As
     topics_result = await session.execute(topics_stmt)
     topics = topics_result.scalars().all()
 
+    # Формируем список тем
     topics_list = ""
     if topics:
         for i, topic in enumerate(topics, 1):
@@ -233,10 +227,8 @@ async def manage_group_selected(message: Message, state: FSMContext, session: As
         parse_mode="HTML",
         reply_markup=get_admin_panel_menu(get_text)
     )
+
     await state.set_state(AdminPanel.main)
-
-
-
 
 @router.message(Command("activ"))
 async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_text: callable):
@@ -571,7 +563,7 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
         )
 
 @router.message(AdminPanel.main, F.text == "← Назад в главное меню")
-async def back_to_main(message: Message, state: FSMContext, get_text: callable):
+async def back_to_main(message: Message, state: FSMContext):
     """Вернуться в главное меню."""
     await message.answer(
         get_text(['common', 'menu']),
