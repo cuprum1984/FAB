@@ -514,7 +514,7 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
         )
 
 
-@router.message(AdminPanel.main, F.text.in_({"← Назад в главное меню", "← Back to main menu"}))
+@router.message(AdminPanel.main, F.text.in_({"← Назад", "← Back"}))
 async def back_to_main(message: Message, state: FSMContext, get_text: callable):
     """Вернуться в главное меню."""
     await message.answer(

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models import TelegramAccount, UserPreferences
 from bot.keyboards import get_main_menu
+from aiogram import Bot
 
 logger = logging.getLogger(__name__)
 router = Router(name="common")
@@ -134,3 +135,26 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext, session: Asyn
         parse_mode="HTML",
         reply_markup=get_main_menu(get_text)
     )
+
+
+@router.message(Command("apiversion"))
+async def cmd_api_version(message: Message, bot: Bot, get_text: callable):
+    """Паказаць версію Bot API"""
+    try:
+        # Спрабуем атрымаць версію API
+        if hasattr(bot, 'api_version'):
+            version = bot.api_version
+            await message.answer(f"🤖 **Bot API версія:** `{version}`")
+        else:
+            # Калі няма api_version, спрабуем праз bot.get_me()
+            me = await bot.get_me()
+            await message.answer(
+                f"🤖 **Інфармацыя пра бота:**\n"
+                f"• Імя: {me.full_name}\n"
+                f"• Юзернейм: @{me.username}\n"
+                f"• ID: `{me.id}`\n\n"
+                f"⚠️ Версію API не атрымалася вызначыць.\n"
+                f"Хутчэй за ўсё, выкарыстоўваецца версія **ніжэйшая за 9.4**."
+            )
+    except Exception as e:
+        await message.answer(f"❌ Памылка: {e}")

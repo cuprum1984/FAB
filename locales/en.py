@@ -39,7 +39,7 @@ MESSAGES = {
                 "<b>👥 Working with groups:</b>\n"
                 "• Add the bot to a group\n"
                 "• Make it admin\n"
-                "• Enter /activ in the group\n\n"
+                "• Enter /activ in the group. If the group has a single topic (General) - enter /plus\n\n"
                 "<b>📚 Working with topics:</b>\n"
                 "• After creating a group, enable topics in group settings, create a topic.\n"
                 "• To register a topic, enter the /plus command\n\n"
@@ -61,17 +61,17 @@ MESSAGES = {
     "refresh": {
         "success": "🔄 <b>Interface refreshed, {first_name}!</b>\n\n"
                    "🤖 <b>MyAggryBot</b> is ready to work.\n\n"
-                   "<b>📌 Quick commands:</b>\n"
-                   "• /add — add a channel\n"
-                   "• /list — my sources\n"
-                   "• /help — help",
+                   #"<b>📌 Quick commands:</b>\n"
+                   #"• /add — add a channel\n"
+                   #"• /list — my sources\n"
+                   #"• /help — help",
     },
     
     # ========== KEYBOARDS (keyboards.py) ==========
     "keyboards": {
         # Main menu
         "main_menu": {
-            "add_channel": "📥 Add channel",
+            "add_channel": "✚ Add channel",
             "my_sources": "📚 My sources",
             "my_feed": "📰 My feed",
             "settings": "⚙️ Settings",

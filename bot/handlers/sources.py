@@ -64,7 +64,7 @@ USERNAME_REGEX = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{4,31}$")
 
 
 @router.message(Command("add"))
-@router.message(F.text.in_({"📥 Добавить канал", "📥 Add channel"}))
+@router.message(F.text.in_({"✚ Добавить канал", "✚ Add channel"}))
 async def cmd_add_channel(message: Message, state: FSMContext, session: AsyncSession, get_text: callable): 
     """Начать процесс добавления канала."""
     
