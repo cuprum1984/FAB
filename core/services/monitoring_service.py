@@ -249,7 +249,7 @@ class MonitoringService:
             return
         
         username = source.telegram_username
-        source_name = source.title or f"@{username}"
+        source_name = f"@{username}"
         
         logger.info(f"🔍 Проверяю Telegram канал: {source_name}")
         logger.info(f"   📦 В БД last_successful_post_id = {source.last_successful_post_id}")
@@ -480,7 +480,8 @@ class MonitoringService:
     # ----------------------------------------------------------------------
     # 🔥 ОТПРАВКА В ТЕМЫ
     # ----------------------------------------------------------------------
-    
+
+
     async def _send_media_to_assignment(
         self,
         post: Dict,
@@ -497,7 +498,12 @@ class MonitoringService:
                 return
             
             text = post.get('text', '').strip()
-            source_name = source.title or f"@{source.telegram_username}"
+            
+            # 🔥 ИСПРАВЛЕНО: используем channel_title для отображения
+            if source.channel_title:
+                source_name = f"{source.channel_title} | @{source.telegram_username}"
+            else:
+                source_name = f"@{source.telegram_username}"
             
             caption = f"<b>{source_name}</b>\n\n{text}"
             if len(caption) > 1024:
@@ -537,7 +543,8 @@ class MonitoringService:
         except Exception as e:
             logger.error(f"❌ Ошибка отправки медиа: {e}", exc_info=True)
             raise
-    
+
+
     async def _send_text_to_assignment(
         self, 
         post: Dict, 
@@ -565,7 +572,8 @@ class MonitoringService:
         except Exception as e:
             logger.error(f"❌ Ошибка отправки текста: {e}", exc_info=True)
             raise
-    
+
+
     async def _send_message_with_retry(
         self,
         chat_id: int,
@@ -588,30 +596,74 @@ class MonitoringService:
                 
                 logger.info(f"✅ Сообщение успешно отправлено в chat_id={chat_id}, thread_id={thread_id}")
                 return
-                
+
             except Exception as e:
                 error = str(e).lower()
                 error_type = type(e).__name__
                 
                 logger.error(f"❌ Ошибка отправки (попытка {attempt + 1}): {error_type} - {e}")
                 
-                if "too many requests" in error or "flood" in error:
+                # ===== НОВАЯ ЛОГИКА ОБРАБОТКИ СПЕЦИФИЧЕСКИХ ОШИБОК =====
+                
+                # Если бота кикнули из группы или запретили отправку
+                if "forbidden" in error or "bot was kicked" in error or "not enough rights" in error:
+                    logger.error(f"👢 Бот потерял доступ к группе {chat_id}, помечаю неактивной")
+                    
+                    # Получаем группу из БД и обновляем
+                    try:
+                        from core.models import ManagedGroup
+                        from sqlalchemy import select
+                        
+                        async with async_session() as cleanup_session:
+                            stmt = select(ManagedGroup).where(ManagedGroup.telegram_chat_id == chat_id)
+                            result = await cleanup_session.execute(stmt)
+                            group = result.scalar_one_or_none()
+                            
+                            if group:
+                                group.is_bot_active_in_group = False
+                                group.last_seen_at = datetime.utcnow()
+                                await cleanup_session.commit()
+                                logger.info(f"✅ Группа {chat_id} помечена как неактивная")
+                    except Exception as db_error:
+                        logger.error(f"❌ Не удалось обновить статус группы: {db_error}")
+                    
+                    return  # Прерываем отправку
+                
+                # Если тема удалена в Telegram
+                elif "message thread not found" in error:
+                    logger.error(f"❌ Тема {thread_id} не найдена в чате {chat_id}")
+                    
+                    # Помечаем тему как несуществующую
+                    try:
+                        from core.models import GroupTopic
+                        from sqlalchemy import select
+                        
+                        topic_identifier = f"{chat_id}:{thread_id}" if thread_id else f"{chat_id}:0"
+                        
+                        async with async_session() as cleanup_session:
+                            stmt = select(GroupTopic).where(GroupTopic.topic_identifier == topic_identifier)
+                            result = await cleanup_session.execute(stmt)
+                            topic = result.scalar_one_or_none()
+                            
+                            if topic:
+                                topic.is_exists_in_tg = False
+                                await cleanup_session.commit()
+                                logger.info(f"✅ Тема {topic_identifier} помечена как удалённая")
+                    except Exception as db_error:
+                        logger.error(f"❌ Не удалось обновить статус темы: {db_error}")
+                    
+                    return  # Прерываем отправку
+                
+                # Стандартная обработка остальных ошибок
+                elif "too many requests" in error or "flood" in error:
                     wait = 5 * (attempt + 1)
                     logger.warning(f"⏳ Flood control, жду {wait}с...")
                     await asyncio.sleep(wait)
-                    
-                elif "message thread not found" in error:
-                    logger.error(f"❌ Тема {thread_id} не найдена в чате {chat_id}")
-                    return
-                    
+                
                 elif "chat not found" in error:
                     logger.error(f"❌ Чат {chat_id} не найден! Бот удалён из группы?")
                     return
-                    
-                elif "not enough rights" in error or "forbidden" in error:
-                    logger.error(f"❌ Недостаточно прав для отправки в чат {chat_id}")
-                    return
-                    
+                
                 elif "message is too long" in error:
                     logger.warning(f"⚠️ Сообщение слишком длинное, обрезаю...")
                     text = text[:3000] + "...\n\n[сообщение обрезано]"
@@ -620,7 +672,7 @@ class MonitoringService:
                     else:
                         logger.error(f"❌ Не удалось отправить даже после обрезания")
                         return
-                        
+                
                 else:
                     if attempt < max_retries - 1:
                         wait = 2 * (attempt + 1)
@@ -629,14 +681,20 @@ class MonitoringService:
                     else:
                         logger.error(f"❌ Все попытки исчерпаны: {e}")
                         return
-    
+                    
+
+
     def _format_telegram_post_message(self, post: Dict, source: ContentSource) -> str:
         """Форматирование текста Telegram поста"""
         text = post.get('text', '').strip()
         if not text:
             text = "📎 [Медиа-сообщение]"
         
-        source_name = source.title or f"@{source.telegram_username}"
+        # 🔥 ИСПРАВЛЕНО: используем channel_title для отображения
+        if source.channel_title:
+            source_name = f"{source.channel_title} | @{source.telegram_username}"
+        else:
+            source_name = f"@{source.telegram_username}"
         
         timestamp = post.get('timestamp')
         time_str = ""
@@ -659,7 +717,6 @@ class MonitoringService:
             message = message[:3997] + "..."
         
         return message
-
 
 
     # ===== ПРОВЕРКА ГРУПП 2 РАЗА В ДЕНЬ =====

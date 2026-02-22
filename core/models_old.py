@@ -1,14 +1,11 @@
 # core/models.py
 """
 Модели данных для MyAggryBot.
-Версия: 4.1 (22 февраля 2026)
+Версия: 3.0 (17 февраля 2026)
 Изменения:
-- Добавлено поле last_seen_at в ManagedGroup
-- Добавлено поле is_exists_in_tg в GroupTopic
-- Удалена таблица group_memberships
-- Удалены поля last_video_timestamp, channel_language, title, description из ContentSource
-- Добавлены новые индексы
-- ✅ Добавлено поле channel_title в ContentSource для отображения названий каналов
+- Добавлены поля для YouTube HTML парсера: youtube_username, channel_language, last_video_timestamp
+- Добавлены индексы для новых полей
+- Обновлены комментарии
 """
 
 from datetime import datetime
@@ -16,7 +13,7 @@ from typing import Optional, List
 
 from sqlalchemy import (
     BigInteger, Boolean, ForeignKey, String, Integer, Text, UniqueConstraint,
-    func, Index, DateTime
+    func, Index
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -46,6 +43,11 @@ class TelegramAccount(Base):
     last_activity: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     
     # Связи
+    group_memberships: Mapped[List["GroupMembership"]] = relationship(
+        back_populates="account",
+        cascade="all, delete-orphan"
+    )
+    
     created_topics: Mapped[List["GroupTopic"]] = relationship(
         back_populates="created_by",
         cascade="save-update, merge"
@@ -70,7 +72,6 @@ class ManagedGroup(Base):
         Index('idx_group_chat_type', 'chat_type'),
         Index('idx_group_added_timestamp', 'bot_added_timestamp'),
         Index('idx_group_restrict', 'restrict_saving_content'),
-        Index('idx_group_last_seen', 'last_seen_at'),
     )
 
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -80,23 +81,11 @@ class ManagedGroup(Base):
     bot_added_timestamp: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     is_bot_active_in_group: Mapped[bool] = mapped_column(Boolean, server_default="true", nullable=False)
     restrict_saving_content: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
-    
-    # ✅ НОВОЕ ПОЛЕ: отслеживание последней активности
-    last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False
-    )
-    
-    # ✅ НОВОЕ ПОЛЕ: создатель группы (ранее было в group_memberships)
-    creator_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger,
-        ForeignKey("telegram_accounts.telegram_account_id", ondelete="SET NULL"),
-        nullable=True
-    )
 
-    # Связи
+    memberships: Mapped[List["GroupMembership"]] = relationship(
+        back_populates="group",
+        cascade="all, delete-orphan"
+    )
     topics: Mapped[List["GroupTopic"]] = relationship(
         back_populates="group",
         cascade="all, delete-orphan"
@@ -107,18 +96,46 @@ class ManagedGroup(Base):
     )
 
 
-# ❌ ТАБЛИЦА group_memberships ПОЛНОСТЬЮ УДАЛЕНА
+class GroupMembership(Base):
+    """Членство пользователей в группах"""
+    __tablename__ = "group_memberships"
+    __table_args__ = (
+        UniqueConstraint("telegram_account_id", "telegram_chat_id", name="uq_account_chat"),
+        Index('idx_membership_role', 'role'),
+        Index('idx_membership_joined', 'joined_timestamp'),
+        Index('idx_membership_account_chat', 'telegram_account_id', 'telegram_chat_id'),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    telegram_account_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("telegram_accounts.telegram_account_id", ondelete="CASCADE"),
+        nullable=False
+    )
+    telegram_chat_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("managed_groups.telegram_chat_id", ondelete="CASCADE"),
+        nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(50), nullable=False)
+    joined_timestamp: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+    account: Mapped["TelegramAccount"] = relationship(back_populates="group_memberships")
+    group: Mapped["ManagedGroup"] = relationship(back_populates="memberships")
 
 
 class ContentSource(Base):
-    """Источники контента (каналы, RSS, YouTube и т.д.)"""
+    """Источники контента (каналы, RSS, YouTube и т.д.) - ПУБЛИЧНЫЙ КАТАЛОГ"""
     __tablename__ = "content_sources"
     __table_args__ = (
         Index('idx_source_type', 'source_type'),
         Index('idx_source_username', 'telegram_username'),
         Index('idx_source_last_post', 'last_successful_post_id'),
         Index('idx_source_last_checked', 'last_checked_timestamp'),
+        Index('idx_source_last_video', 'last_video_id'),
+        # ✅ НОВЫЕ ИНДЕКСЫ
         Index('idx_youtube_username', 'youtube_username'),
+        Index('idx_last_video_timestamp', 'last_video_timestamp'),
     )
 
     source_global_id: Mapped[str] = mapped_column(String(256), primary_key=True)
@@ -127,14 +144,15 @@ class ContentSource(Base):
     # Для Telegram
     telegram_username: Mapped[Optional[str]] = mapped_column(String(100), unique=True, nullable=True)
     
-    # ✅ ВОЗВРАЩАЕМ: название канала для отображения (было удалено, но нужно для красивого вывода)
-    channel_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    
     # Для YouTube/RSS
     feed_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     
-    # username для YouTube
+    # ✅ НОВОЕ ПОЛЕ: username для YouTube (например, @MackNack)
     youtube_username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    
+    # Публичная информация
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     created_timestamp: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     
@@ -142,40 +160,27 @@ class ContentSource(Base):
     
     # Для Telegram: числовой ID поста
     # Для RSS: числовой хеш от guid/ссылки
-    # Для YouTube: числовой хеш от video_id
+    # Для YouTube: числовой хеш от video_id (для обратной совместимости)
     last_successful_post_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     
     # Для YouTube (строковый video_id)
     last_video_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     
+    # ✅ НОВОЕ ПОЛЕ: timestamp последнего видео (для сравнения)
+    last_video_timestamp: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    
+    # ✅ НОВОЕ ПОЛЕ: язык канала для правильных headers
+    channel_language: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    
     # Общие поля
     last_successful_post_timestamp: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     last_checked_timestamp: Mapped[Optional[datetime]] = mapped_column(nullable=True)
-    parsing_interval: Mapped[int] = mapped_column(Integer, server_default="300", nullable=False)
+    parsing_interval: Mapped[int] = mapped_column(Integer, server_default="300", nullable=False)  # 5 минут по умолчанию
     
     subscriptions: Mapped[List["SourceSubscription"]] = relationship(
         back_populates="source",
         cascade="all, delete-orphan"
     )
-    
-    @property
-    def display_name(self) -> str:
-        """
-        Возвращает название для отображения.
-        Приоритет:
-        1. channel_title (если есть)
-        2. для Telegram: @username
-        3. для YouTube: youtube_username
-        4. source_global_id
-        """
-        if self.channel_title:
-            return self.channel_title
-        elif self.source_type == "telegram" and self.telegram_username:
-            return f"@{self.telegram_username}"
-        elif self.source_type == "youtube" and self.youtube_username:
-            return self.youtube_username
-        else:
-            return self.source_global_id
     
     @property
     def parsing_url(self) -> Optional[str]:
@@ -251,7 +256,6 @@ class GroupTopic(Base):
         Index('idx_topic_thread_id', 'telegram_thread_id'),
         Index('idx_topic_chat_thread', 'telegram_chat_id', 'telegram_thread_id'),
         Index('idx_topic_created', 'created_timestamp'),
-        Index('idx_topic_exists', 'is_exists_in_tg'),
     )
 
     topic_identifier: Mapped[str] = mapped_column(String(128), primary_key=True)
@@ -263,13 +267,6 @@ class GroupTopic(Base):
     telegram_thread_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     topic_name: Mapped[str] = mapped_column(String(255), nullable=False)
     is_closed: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
-    
-    # ✅ НОВОЕ ПОЛЕ: помечать темы, удалённые в Telegram
-    is_exists_in_tg: Mapped[bool] = mapped_column(
-        Boolean,
-        server_default="true",
-        nullable=False
-    )
     
     created_by_telegram_account_id: Mapped[Optional[int]] = mapped_column(
         BigInteger,

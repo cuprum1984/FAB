@@ -349,7 +349,8 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
                 source_global_id=source_global_id,
                 source_type="telegram",
                 telegram_username=username,
-                title=source_title
+                channel_title=source_title,
+                feed_url=None
             )
             
             source.last_successful_post_id = first_post_id
@@ -361,14 +362,15 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
                 source_global_id=source_global_id,
                 source_type="youtube",
                 feed_url=feed_url,
-                title=source_title
+                youtube_username=username,
+                channel_title=source_title
             )
             
             # Сохраняем новые поля для YouTube HTML парсера
             source.youtube_username = username
-            source.channel_language = channel_language
+            #source.channel_language = channel_language
             source.last_video_id = last_video_id
-            source.last_video_timestamp = last_video_timestamp
+            #source.last_video_timestamp = last_video_timestamp
             
             # Числовой хеш для обратной совместимости
             video_id_num = int(hashlib.md5(last_video_id.encode()).hexdigest()[:15], 16) % (10**15)
@@ -612,7 +614,7 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
             
             if first_post:
                 try:
-                    source_name = source.title or f"@{username}"
+                    source_name = f"@{username}"
                     text = first_post.get('text', '').strip()
                     if not text:
                         text = "📎 [Медиа-сообщение]"
@@ -637,10 +639,16 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
         elif source_type == "youtube":
             first_video_id = data.get("first_video_id")
             username = data.get("youtube_username") or data.get("channel_id", "")[:8]
+            channel_title = data.get("source_title")  # Название канала
             
             if first_video_id:
                 try:
-                    source_name = source.title or f"YouTube канал @{username}"
+                    # 🔥 ИСПРАВЛЕНО: формат "Название | @username" для YouTube
+                    if channel_title:
+                        source_name = f"{channel_title} | @{username}"
+                    else:
+                        source_name = f"YouTube канал @{username}"
+                    
                     video_url = f"https://youtu.be/{first_video_id}"
                     
                     # Формируем одно сообщение со ссылкой
@@ -733,7 +741,7 @@ async def cmd_my_sources(message: Message, session: AsyncSession, get_text: call
         .join(TopicSourceAssignment, TopicSourceAssignment.subscription_id == SourceSubscription.subscription_id)
         .join(GroupTopic, GroupTopic.topic_identifier == TopicSourceAssignment.topic_identifier)
         .where(ManagedGroup.telegram_chat_id.in_(group_ids))
-        .order_by(ManagedGroup.telegram_chat_title, GroupTopic.topic_name, ContentSource.title)
+        .order_by(ManagedGroup.telegram_chat_title, GroupTopic.topic_name, ContentSource.source_global_id)
     )
     
     result = await session.execute(stmt)
@@ -771,10 +779,16 @@ async def cmd_my_sources(message: Message, session: AsyncSession, get_text: call
         
         # Определяем иконку для источника
         source_icon = "📺" if source.source_type == "youtube" else "📰"
-        source_name = source.title or (
-            f"@{source.telegram_username}" if source.telegram_username 
-            else source.youtube_username or "Без названия"
-        )
+        
+        # 🔥 ИСПРАВЛЕНО: используем display_name
+        if source.channel_title:
+            source_name = source.channel_title
+        elif source.source_type == "telegram" and source.telegram_username:
+            source_name = f"@{source.telegram_username}"
+        elif source.source_type == "youtube" and source.youtube_username:
+            source_name = source.youtube_username
+        else:
+            source_name = "Без названия"
         
         # Добавляем источник с source_global_id
         grouped_data[chat_id]["topics"][topic.topic_identifier]["sources"].append({
@@ -892,7 +906,7 @@ async def navigate_sources(callback: CallbackQuery, session: AsyncSession, get_t
         .join(TopicSourceAssignment, TopicSourceAssignment.subscription_id == SourceSubscription.subscription_id)
         .join(GroupTopic, GroupTopic.topic_identifier == TopicSourceAssignment.topic_identifier)
         .where(ManagedGroup.telegram_chat_id.in_(group_ids))
-        .order_by(ManagedGroup.telegram_chat_title, GroupTopic.topic_name, ContentSource.title)
+        .order_by(ManagedGroup.telegram_chat_title, GroupTopic.topic_name, ContentSource.source_global_id)
     )
     
     result = await session.execute(stmt)
@@ -921,10 +935,16 @@ async def navigate_sources(callback: CallbackQuery, session: AsyncSession, get_t
             }
         
         source_icon = "📺" if source.source_type == "youtube" else "📰"
-        source_name = source.title or (
-            f"@{source.telegram_username}" if source.telegram_username 
-            else source.youtube_username or "Без названия"
-        )
+        
+        # 🔥 ИСПРАВЛЕНО: используем display_name
+        if source.channel_title:
+            source_name = source.channel_title
+        elif source.source_type == "telegram" and source.telegram_username:
+            source_name = f"@{source.telegram_username}"
+        elif source.source_type == "youtube" and source.youtube_username:
+            source_name = source.youtube_username
+        else:
+            source_name = "Без названия"
         
         grouped_data[chat_id]["topics"][topic.topic_identifier]["sources"].append({
             "icon": source_icon,
@@ -1119,7 +1139,7 @@ async def update_sources_list(message: Message, session: AsyncSession, user_id: 
         .join(TopicSourceAssignment, TopicSourceAssignment.subscription_id == SourceSubscription.subscription_id)
         .join(GroupTopic, GroupTopic.topic_identifier == TopicSourceAssignment.topic_identifier)
         .where(ManagedGroup.telegram_chat_id.in_(group_ids))
-        .order_by(ManagedGroup.telegram_chat_title, GroupTopic.topic_name, ContentSource.title)
+        .order_by(ManagedGroup.telegram_chat_title, GroupTopic.topic_name, ContentSource.source_global_id)
     )
     
     result = await session.execute(stmt)
@@ -1148,10 +1168,16 @@ async def update_sources_list(message: Message, session: AsyncSession, user_id: 
             }
         
         source_icon = "📺" if source.source_type == "youtube" else "📰"
-        source_name = source.title or (
-            f"@{source.telegram_username}" if source.telegram_username 
-            else source.youtube_username or "Без названия"
-        )
+        
+        # 🔥 ИСПРАВЛЕНО: используем display_name
+        if source.channel_title:
+            source_name = source.channel_title
+        elif source.source_type == "telegram" and source.telegram_username:
+            source_name = f"@{source.telegram_username}"
+        elif source.source_type == "youtube" and source.youtube_username:
+            source_name = source.youtube_username
+        else:
+            source_name = "Без названия"
         
         grouped_data[chat_id]["topics"][topic.topic_identifier]["sources"].append({
             "icon": source_icon,
@@ -1245,3 +1271,4 @@ async def update_sources_list(message: Message, session: AsyncSession, user_id: 
         disable_web_page_preview=True,
         reply_markup=get_source_list_kb(flat_sources, page=page, get_text=get_text)
     )
+
