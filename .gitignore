@@ -147,7 +147,7 @@ clear_db.py
 clear_redis.py
 debug_db.py
 redis_data.json
-промпт_19-02-26.md
+*.md
 scripts/
 tests/
 План действий.md
