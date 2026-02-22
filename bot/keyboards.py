@@ -28,20 +28,22 @@ def get_main_menu(get_text: GetTextFunc) -> ReplyKeyboardMarkup:
         btn_settings = get_text(['keyboards', 'main_menu', 'settings'])
         btn_help = get_text(['keyboards', 'main_menu', 'help'])
         btn_refresh = get_text(['keyboards', 'main_menu', 'refresh'])
+        btn_admin_panel = get_text(['keyboards', 'main_menu', 'admin_panel'])
         placeholder = get_text(['keyboards', 'main_menu', 'placeholder'])
     except Exception as e:
         logger.error(f"Ошибка локализации меню: {e}")
         # Запасной вариант (Fallback)
-        btn_add, btn_sources = "📥 Добавить", "📚 Источники"
+        btn_add, btn_sources = "✚ Добавить", "📚 Источники"
         btn_feed = "📰 Лента"
         btn_settings, btn_help = "⚙️ Настройки", "❓ Помощь"
+        btn_admin_panel = "👨‍💼 Админ-панель"
         btn_refresh = "🔄 Обновить"
         placeholder = "Выберите действие..."
 
     # Строим сетку кнопок
-    builder.row(KeyboardButton(text=btn_add), KeyboardButton(text=btn_sources))
+    builder.row(KeyboardButton(text=btn_add, style="success"), KeyboardButton(text=btn_sources))
     builder.row(KeyboardButton(text=btn_feed), KeyboardButton(text=btn_help))
-    builder.row(KeyboardButton(text=btn_settings), KeyboardButton(text=btn_refresh))
+    builder.row(KeyboardButton(text=btn_settings), KeyboardButton(text=btn_admin_panel), KeyboardButton(text=btn_refresh))
 
     # .as_markup() ОБЯЗАТЕЛЬНО должен быть с resize_keyboard=True
     return builder.as_markup(

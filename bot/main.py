@@ -37,6 +37,7 @@ from core.utils.i18n import create_i18n
 # 👇 Middleware
 from bot.middlewares import DBSessionMiddleware
 from bot.middlewares.i18n import I18nMiddleware
+from bot.middlewares.group_filter import GroupCommandFilterMiddleware  # 👈 НОВЫЙ
 
 # Импортируем хендлеры
 from bot.handlers import (
@@ -292,6 +293,7 @@ async def main():
     # 👇 ВАЖНО: ПРАВИЛЬНЫЙ ПОРЯДОК MIDDLEWARE 👇
     dp.message.middleware(DBSessionMiddleware())      # 1. Сначала БД
     dp.callback_query.middleware(DBSessionMiddleware())  # 1. Для callback тоже БД
+    dp.message.middleware(GroupCommandFilterMiddleware())  # 👈 НОВЫЙ
     dp.message.middleware(I18nMiddleware())           # 2. Потом i18n для сообщений
     dp.callback_query.middleware(I18nMiddleware())    # 3. И для callback (ОДИН РАЗ!)
     logger.info("✅ Middleware для БД и i18n подключены")

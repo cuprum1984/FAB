@@ -39,7 +39,7 @@ MESSAGES = {
                 "<b>👥 Working with groups:</b>\n"
                 "• Add the bot to a group\n"
                 "• Make it admin\n"
-                "• Enter /activ in the group\n\n"
+                "• Enter /activ in the group. If the group has a single topic (General) - enter /plus\n\n"
                 "<b>📚 Working with topics:</b>\n"
                 "• After creating a group, enable topics in group settings, create a topic.\n"
                 "• To register a topic, enter the /plus command\n\n"
@@ -61,17 +61,17 @@ MESSAGES = {
     "refresh": {
         "success": "🔄 <b>Interface refreshed, {first_name}!</b>\n\n"
                    "🤖 <b>MyAggryBot</b> is ready to work.\n\n"
-                   "<b>📌 Quick commands:</b>\n"
-                   "• /add — add a channel\n"
-                   "• /list — my sources\n"
-                   "• /help — help",
+                   #"<b>📌 Quick commands:</b>\n"
+                   #"• /add — add a channel\n"
+                   #"• /list — my sources\n"
+                   #"• /help — help",
     },
     
     # ========== KEYBOARDS (keyboards.py) ==========
     "keyboards": {
         # Main menu
         "main_menu": {
-            "add_channel": "📥 Add channel",
+            "add_channel": "✚ Add channel",
             "my_sources": "📚 My sources",
             "my_feed": "📰 My feed",
             "settings": "⚙️ Settings",
@@ -82,7 +82,7 @@ MESSAGES = {
         },
         
         # Main menu title (for back buttons)
-        "main_menu_title": "🏠 Main menu",  # ← ДОБАВЛЕНО
+        "main_menu_title": "🏠 Main menu",
         
         # Admin panel
         "admin_menu": {
@@ -118,7 +118,7 @@ MESSAGES = {
         # Cancel/back
         "cancel": "❌ Cancel",
         "back": "← Back",
-        "back_to_settings": "← Back to settings",  # ← ДОБАВЛЕНО
+        "back_to_settings": "← Back to settings",
         
         # Confirmations
         "confirm_add": "✅ Yes, add",
@@ -141,8 +141,8 @@ MESSAGES = {
         },
         
         # Delete confirmation
-        "confirm_delete": "✅ YES, delete everything",
-        "cancel_delete": "❌ NO, cancel",
+        "confirm_delete": "_✅ YES, delete everything",
+        "cancel_delete": "_❌ NO, cancel",
         
         # Sources list
         "sources_list": {
@@ -207,6 +207,11 @@ MESSAGES = {
                          "• Register topics via /plus\n"
                          "• Manage via Admin Panel",
         "activ_error": "<b>❌ Error activating group:</b>\n<code>{error}</code>",
+        
+        # ✅ НОВЫЙ КЛЮЧ: сообщение в ЛС после активации группы
+        "activ_success_dm": "<b>✅ Group activated!</b>\n\n"
+                            "Group '<b>{name}</b>' has been successfully activated.\n\n"
+                            "You can now manage it via the admin panel:",
         
         # /mytopics command
         "mytopics_title": "<b>🗂️ Your registered topics</b>\n\n",
@@ -396,6 +401,7 @@ MESSAGES = {
                           "• 👥 Leave all groups (if you are an admin)\n"
                           "• ⚙️ All settings\n"
                           "• 💾 All cache\n\n"
+                          "TEST!!!\n"
                           "<b>This action CANNOT be undone!</b>\n\n"
                           "Groups where you are not an admin will remain active for other users.\n\n"
                           "Are you sure?",
@@ -407,6 +413,24 @@ MESSAGES = {
                           "You can start over with the /start command",
         "delete_cancelled": "✅ Deletion cancelled",
         "delete_error": "❌ Error deleting data: {error}",
+    },
+    
+    # ========== MIDDLEWARE MESSAGES ==========
+    "middleware": {
+        # Для команд, вызванных в ЛС, но предназначенных для групп
+        "group_only_command": (
+            "⚠️ Commands /activ and /plus only work in groups and topics!\n\n"
+            "1. Add the bot to a group\n"
+            "2. Make it administrator\n"
+            "3. In the group, enter /activ\n"
+            "4. In the desired topic, enter /plus"
+        ),
+        
+        # Для команд, вызванных в группах, но предназначенных для ЛС
+        "private_only_command": (
+            "⚠️ This command is only available in private messages with the bot.\n"
+            "Write to me in DM: @MyAggryBot"
+        ),
     },
     
     # ========== HTML FORMATTER (html_formatter.py) ==========
