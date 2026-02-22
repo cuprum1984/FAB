@@ -39,7 +39,7 @@ class YouTubeSimpleMonitoringService:
             logger.warning(f"⚠️ Источник {source.source_global_id} не имеет youtube_username")
             return
         
-        source_name = source.title or f"YouTube канал @{username}"
+        source_name = f"YouTube канал @{username}"
         
         logger.info(f"🔍 Проверяю YouTube канал (простой): {source_name}")
         logger.info(f"   📺 Последнее сохранённое видео: {source.last_video_id}")
@@ -123,7 +123,7 @@ class YouTubeSimpleMonitoringService:
         """Отправить видео во все назначения"""
         
         video_url = f"https://youtu.be/{video_id}"
-        source_name = source.title or f"YouTube канал"
+        source_name = f"YouTube канал"
         
         message_text = f"{video_url}\n\n<b>{source_name}</b>"
         

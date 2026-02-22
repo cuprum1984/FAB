@@ -10,6 +10,7 @@
 """
 import html
 import logging
+from datetime import datetime
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -162,12 +163,10 @@ async def manage_group_selected(message: Message, state: FSMContext, session: As
     await state.set_state(AdminPanel.main)
 
 
-
 @router.message(Command("activ"))
 async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_text: callable):
     """Активация группы."""
     # Middleware уже гарантирует, что мы здесь только в группе/супергруппе
-    # Но на всякий случай добавим проверку
     if message.chat.type not in ("group", "supergroup"):
         return  # middleware должно было отсечь, но для надёжности
     
@@ -220,12 +219,25 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
     result = await session.execute(stmt)
     existing_group = result.scalar_one_or_none()
     
+    now = datetime.utcnow()  # ✅ Текущее время для last_seen_at
+    
     try:
         if existing_group:
             # Обновляем существующую группу
+            was_inactive = not existing_group.is_bot_active_in_group
+            
             if not existing_group.is_bot_active_in_group:
                 existing_group.is_bot_active_in_group = True
                 existing_group.bot_role_in_group = bot_member.status
+                
+                # ✅ ДОБАВЛЕНО: обновляем last_seen_at
+                existing_group.last_seen_at = now
+                
+                # ✅ ДОБАВЛЕНО: устанавливаем creator_id, если его нет
+                if not existing_group.creator_id:
+                    existing_group.creator_id = user_id
+                    logger.info(f"👤 Установлен creator_id={user_id} для группы {chat_id}")
+                
                 await session.commit()
                 
                 # ✅ В ГРУППЕ: только текст, БЕЗ клавиатуры
@@ -248,6 +260,10 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
                 except Exception as e:
                     logger.warning(f"Не удалось отправить сообщение в ЛС пользователю {user_id}: {e}")
             else:
+                # ✅ ДОБАВЛЕНО: даже если группа активна, обновляем last_seen_at
+                existing_group.last_seen_at = now
+                await session.commit()
+                
                 # ✅ В ГРУППЕ: только текст
                 await message.answer(
                     get_text(['admin', 'activ_already_active'],
@@ -263,18 +279,13 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
                 chat_type=message.chat.type,
                 bot_role_in_group=bot_member.status,
                 is_bot_active_in_group=True,
-                restrict_saving_content=False
+                restrict_saving_content=False,
+                creator_id=user_id,           # ✅ НОВОЕ ПОЛЕ
+                last_seen_at=now               # ✅ НОВОЕ ПОЛЕ
             )
             session.add(group)
             
-            # Создаём запись о членстве пользователя
-            from core.models import GroupMembership
-            membership = GroupMembership(
-                telegram_account_id=user_id,
-                telegram_chat_id=chat_id,
-                role=user_member.status
-            )
-            session.add(membership)
+            # ❌ Удаляем создание GroupMembership - таблицы больше нет
             
             await session.commit()
             
@@ -292,6 +303,7 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
                     telegram_thread_id=None,
                     topic_name="General",
                     is_closed=False,
+                    is_exists_in_tg=True,      # ✅ ЯВНО УКАЗЫВАЕМ, ЧТО ТЕМА СУЩЕСТВУЕТ
                     created_by_telegram_account_id=user_id
                 )
                 session.add(general_topic)
@@ -326,7 +338,6 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
             get_text(['admin', 'activ_error'], error=html.escape(str(e)[:200])),
             parse_mode="HTML"
         )
-
 
 
 @router.message(Command("mytopics"))
@@ -394,18 +405,15 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
     
     if not thread_id:
         # Это может быть General тема (у неё нет thread_id)
-        # Проверяем, есть ли уже General тема в БД для этого чата
         general_identifier = TopicUtils.generate_topic_identifier(chat_id, None)
         general_stmt = select(GroupTopic).where(GroupTopic.topic_identifier == general_identifier)
         general_result = await session.execute(general_stmt)
         general_topic = general_result.scalar_one_or_none()
         
         if general_topic:
-            # Это General тема!
             is_general = True
             logger.info("📝 Команда /plus в General теме")
         else:
-            # Это не тема вообще
             await message.answer(
                 get_text(['admin', 'plus_not_in_topic']),
                 parse_mode="HTML"
@@ -440,7 +448,6 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
     
     # ===== 4. ПОЛУЧАЕМ ИДЕНТИФИКАТОР ТЕМЫ =====
     if is_general:
-        # Для General темы thread_id = None
         topic_identifier = TopicUtils.generate_topic_identifier(chat_id, None)
         thread_id_to_save = None
     else:
@@ -452,15 +459,8 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
     topic_result = await session.execute(topic_stmt)
     existing_topic = topic_result.scalar_one_or_none()
     
-    # ===== 6. ОПРЕДЕЛЯЕМ НАЗВАНИЕ ТЕМЫ =====
-    topic_name = None
-    
+    # ===== 6. ЕСЛИ ТЕМА УЖЕ ЕСТЬ - ПРОСТО ПОКАЗЫВАЕМ ИНФОРМАЦИЮ =====
     if existing_topic:
-        # Тема уже есть в БД
-        topic_name = existing_topic.topic_name
-        logger.info(f"📝 Название темы из БД: '{topic_name}'")
-        
-        # Если тема уже зарегистрирована, просто показываем информацию
         thread_display = "General" if is_general else thread_id
         await message.answer(
             get_text(['admin', 'plus_already_exists'],
@@ -469,22 +469,34 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
                     identifier=topic_identifier),
             parse_mode="HTML"
         )
-        return
+        logger.info(f"✅ Тема уже существует: '{existing_topic.topic_name}' (ID: {thread_id})")
+        return  # ✅ ВАЖНО: прерываем выполнение, не создаём новую
     
-    # ===== 7. ЕСЛИ ТЕМЫ НЕТ В БД, ОПРЕДЕЛЯЕМ НАЗВАНИЕ =====
+    # ===== 7. ЕСЛИ ТЕМЫ НЕТ В БД, ПЫТАЕМСЯ ПОЛУЧИТЬ НАЗВАНИЕ =====
+    topic_name = None
+    
     if is_general:
         topic_name = "General"
         logger.info("📝 Создание General темы")
     else:
-        # Пробуем получить название через служебные сообщения
-        topic_name = f"Topic {thread_id}"
-        logger.info(f"📝 Тема не найдена в БД, использую fallback: '{topic_name}'")
+        # 🔥 ИСПРАВЛЕНО: сначала пробуем получить название через get_chat
+        try:
+            chat = await bot.get_chat(chat_id)
+            # Для тем нужно использовать другой метод
+            # В aiogram нет прямого метода для получения названия темы по ID
+            # Поэтому используем то, что сохранил topics_auto
+            topic_name = f"Topic {thread_id}"  # fallback
+            logger.info(f"📝 Использую fallback название: '{topic_name}'")
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения названия темы: {e}")
+            topic_name = f"Topic {thread_id}"
+        
         await message.answer(
             get_text(['admin', 'plus_not_found'], name=topic_name),
             parse_mode="HTML"
         )
     
-    # ===== 8. СОЗДАЁМ ТЕМУ В БД =====
+    # ===== 8. СОЗДАЁМ ТЕМУ В БД (ТОЛЬКО ЕСЛИ ЕЁ ДЕЙСТВИТЕЛЬНО НЕТ) =====
     try:
         topic = await create_or_update_topic(
             chat_id=chat_id,

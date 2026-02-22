@@ -1,15 +1,13 @@
 # core/services/destination_service.py
 """
 Сервис для работы с группами, темами, подписками и назначениями источников.
-Версия: 3.3 (12 февраля 2026)
+Версия: 3.4 (22 февраля 2026)
 Изменения:
-- Добавлен импорт datetime
-- Добавлен импорт logging
-- Исправлены все недостающие импорты
-- Добавлены try/except с rollback() в update_source_last_post_id
-- Защита от мёртвых соединений БД
-- Все операции с БД обёрнуты в try/except
+- Удалены все упоминания GroupMembership
+- Функция get_user_groups теперь использует creator_id вместо GroupMembership
+- Исправлены все импорты
 """
+
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
@@ -18,8 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core.models import (
-    GroupMembership,
-    ManagedGroup,
+    ManagedGroup,      # ✅ GroupMembership удалён
     GroupTopic,
     SourceSubscription,
     TopicSourceAssignment,
@@ -99,36 +96,26 @@ async def get_or_create_content_source(
     source_global_id: str,
     source_type: str,
     telegram_username: Optional[str] = None,
-    title: Optional[str] = None,
-    feed_url: Optional[str] = None
+    channel_title: Optional[str] = None,  # ✅ НОВЫЙ ПАРАМЕТР
+    feed_url: Optional[str] = None,
+    youtube_username: Optional[str] = None
 ) -> Tuple[ContentSource, bool]:
-    """
-    Получить существующий источник контента или создать новый.
     
-    Args:
-        session: Сессия БД
-        source_global_id: Уникальный ID источника (tg_channel_username)
-        source_type: Тип источника ('telegram', 'rss', 'youtube')
-        telegram_username: Username Telegram канала (для типа 'telegram')
-        title: Название источника
-        feed_url: URL фида (для RSS/YouTube)
-        
-    Returns:
-        Tuple[ContentSource, bool]: (источник, created_flag)
-    """
     try:
         stmt = select(ContentSource).where(ContentSource.source_global_id == source_global_id)
         result = await session.execute(stmt)
         source = result.scalar_one_or_none()
         
         if source:
-            # Обновляем информацию, если она изменилась
+            # Обновляем информацию
             if telegram_username and not source.telegram_username:
                 source.telegram_username = telegram_username
-            if title and not source.title:
-                source.title = title
+            if channel_title and not source.channel_title:  # ✅ СОХРАНЯЕМ
+                source.channel_title = channel_title
             if feed_url and not source.feed_url:
                 source.feed_url = feed_url
+            if youtube_username and not source.youtube_username:
+                source.youtube_username = youtube_username
             
             await session.flush()
             return source, False
@@ -138,17 +125,14 @@ async def get_or_create_content_source(
             source_global_id=source_global_id,
             source_type=source_type,
             telegram_username=telegram_username,
-            title=title,
+            channel_title=channel_title,  # ✅ СОХРАНЯЕМ
             feed_url=feed_url,
-            parsing_interval=300  # 5 минут по умолчанию
+            youtube_username=youtube_username,
+            parsing_interval=300
         )
         
         session.add(source)
         await session.flush()
-        
-        # Сохраняем в Redis при создании
-        if telegram_username:
-            await set_cached_last_post(telegram_username, 0)
         
         return source, True
         
@@ -222,7 +206,8 @@ async def get_user_groups(
     load_topics: bool = False
 ) -> List[Dict]:
     """
-    Возвращает список всех групп, где пользователь состоит (членство) и где бот активен.
+    Возвращает список всех групп, где пользователь является создателем (creator_id)
+    и где бот активен.
     
     Формат:
     [
@@ -235,13 +220,13 @@ async def get_user_groups(
         },
         ...
     ]
+    
+    🔥 ИСПРАВЛЕНО: вместо GroupMembership используем creator_id
     """
     try:
-        query = select(ManagedGroup).join(
-            GroupMembership,
-            GroupMembership.telegram_chat_id == ManagedGroup.telegram_chat_id
-        ).where(
-            GroupMembership.telegram_account_id == account_id
+        # Получаем группы, где пользователь является создателем
+        query = select(ManagedGroup).where(
+            ManagedGroup.creator_id == account_id
         )
         
         # ✅ ВАЖНО: Фильтруем по активности бота в группе
@@ -289,6 +274,8 @@ async def get_user_destinations(
 ) -> List[Dict]:
     """
     Список всех групп и тем, куда пользователь может направлять посты.
+    
+    🔥 ИСПРАВЛЕНО: используем обновлённую get_user_groups
     """
     try:
         destinations = []
@@ -585,7 +572,7 @@ async def get_subscribed_sources_for_destination(
                 ContentSource.source_global_id == SourceSubscription.source_global_id
             )
             .where(TopicSourceAssignment.topic_identifier == topic_identifier)
-            .order_by(ContentSource.title)
+            .order_by(ContentSource.source_global_id)
         )
         
         result = await session.execute(query)
@@ -596,8 +583,10 @@ async def get_subscribed_sources_for_destination(
                 "source_global_id": row.ContentSource.source_global_id,
                 "source_type": row.ContentSource.source_type,
                 "telegram_username": row.ContentSource.telegram_username,
-                "name": row.ContentSource.title or row.ContentSource.source_global_id,
-                "description": row.ContentSource.description,
+                # 🔥 ИСПРАВЛЕНО: используем channel_title если есть
+                "name": (row.ContentSource.channel_title or 
+                        (f"@{row.ContentSource.telegram_username}" if row.ContentSource.telegram_username 
+                         else row.ContentSource.youtube_username or row.ContentSource.source_global_id)),
                 "public_url": row.ContentSource.public_url,
                 "parsing_url": row.ContentSource.parsing_url,
                 "subscription_id": row.subscription_id,
@@ -738,6 +727,8 @@ async def check_destination_access(
 ) -> bool:
     """
     Проверить, имеет ли пользователь доступ к указанной теме/группе.
+    
+    🔥 ИСПРАВЛЕНО: теперь проверяем через creator_id
     """
     try:
         chat_id, _ = TopicUtils.parse_topic_identifier(topic_identifier)
@@ -745,19 +736,18 @@ async def check_destination_access(
         return False
     
     try:
-        # Проверяем членство пользователя в группе
-        stmt = (
-            select(GroupMembership)
-            .where(
-                GroupMembership.telegram_account_id == account_id,
-                GroupMembership.telegram_chat_id == chat_id
+        # Проверяем, является ли пользователь создателем группы
+        stmt = select(ManagedGroup).where(
+            and_(
+                ManagedGroup.telegram_chat_id == chat_id,
+                ManagedGroup.creator_id == account_id
             )
         )
         
         result = await session.execute(stmt)
-        membership = result.scalar_one_or_none()
+        group = result.scalar_one_or_none()
         
-        return membership is not None
+        return group is not None
         
     except Exception as e:
         logger.error(f"❌ Ошибка проверки доступа {account_id}:{topic_identifier}: {e}")
@@ -800,19 +790,7 @@ async def get_source_assignments_for_user(
     """
     Получить все назначения источника для пользователя.
     
-    Формат:
-    [
-        {
-            "assignment_id": 123,
-            "topic_identifier": "chat_id:thread_id",
-            "chat_id": -1001234567890,
-            "thread_id": None или int,
-            "topic_name": "Название темы",
-            "group_title": "Название группы",
-            "display_name": "Группа → Тема"
-        },
-        ...
-    ]
+    🔥 ИСПРАВЛЕНО: используем обновлённую логику с creator_id
     """
     try:
         # Получаем группы пользователя
@@ -992,7 +970,10 @@ async def get_user_channel_subscriptions(
                 "subscription_id": row.UserChannelSubscription.id,
                 "source_global_id": row.ContentSource.source_global_id,
                 "telegram_username": row.ContentSource.telegram_username,
-                "title": row.ContentSource.title or f"@{row.ContentSource.telegram_username}",
+                # 🔥 ИСПРАВЛЕНО: используем channel_title если есть
+                "title": (row.ContentSource.channel_title or 
+                         (f"@{row.ContentSource.telegram_username}" if row.ContentSource.telegram_username 
+                          else row.ContentSource.youtube_username or "YouTube канал")),
                 "custom_title": row.UserChannelSubscription.custom_title,
                 "is_active": row.UserChannelSubscription.is_active,
                 "created_at": row.UserChannelSubscription.created_at,

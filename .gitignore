@@ -151,7 +151,8 @@ redis_data.json
 scripts/
 tests/
 План действий.md
-
+PROMPTS/
+run_cleanup.py
 
 
 # Spyder project settings
