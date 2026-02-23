@@ -41,7 +41,7 @@ def get_main_menu(get_text: GetTextFunc) -> ReplyKeyboardMarkup:
         placeholder = "Выберите действие..."
 
     # Строим сетку кнопок
-    builder.row(KeyboardButton(text=btn_add, style="success"), KeyboardButton(text=btn_sources))
+    builder.row(KeyboardButton(text=btn_add), KeyboardButton(text=btn_sources))
     builder.row(KeyboardButton(text=btn_feed), KeyboardButton(text=btn_help))
     builder.row(KeyboardButton(text=btn_settings), KeyboardButton(text=btn_admin_panel), KeyboardButton(text=btn_refresh))
 
