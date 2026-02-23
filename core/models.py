@@ -252,6 +252,7 @@ class GroupTopic(Base):
         Index('idx_topic_chat_thread', 'telegram_chat_id', 'telegram_thread_id'),
         Index('idx_topic_created', 'created_timestamp'),
         Index('idx_topic_exists', 'is_exists_in_tg'),
+        Index('idx_topic_last_seen', 'last_seen_at'),
     )
 
     topic_identifier: Mapped[str] = mapped_column(String(128), primary_key=True)
@@ -263,14 +264,17 @@ class GroupTopic(Base):
     telegram_thread_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     topic_name: Mapped[str] = mapped_column(String(255), nullable=False)
     is_closed: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
-    
+
     # ✅ НОВОЕ ПОЛЕ: помечать темы, удалённые в Telegram
     is_exists_in_tg: Mapped[bool] = mapped_column(
         Boolean,
         server_default="true",
         nullable=False
     )
-    
+
+    # ✅ НОВОЕ ПОЛЕ: время последнего посещения темы (команда /plus)
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+
     created_by_telegram_account_id: Mapped[Optional[int]] = mapped_column(
         BigInteger,
         ForeignKey("telegram_accounts.telegram_account_id", ondelete="SET NULL"),
