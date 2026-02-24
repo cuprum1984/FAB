@@ -218,7 +218,7 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
     stmt = select(ManagedGroup).where(ManagedGroup.telegram_chat_id == chat_id)
     result = await session.execute(stmt)
     existing_group = result.scalar_one_or_none()
-    
+
     now = datetime.utcnow()  # ✅ Текущее время для last_seen_at
     
     try:

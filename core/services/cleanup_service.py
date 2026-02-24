@@ -78,7 +78,7 @@ class CleanupService:
         
         try:
             cutoff_date = datetime.utcnow() - timedelta(days=30)
-            
+
             # Находим пользователей для удаления
             stmt = select(TelegramAccount).where(
                 and_(
@@ -141,7 +141,7 @@ class CleanupService:
         
         try:
             cutoff_date = datetime.utcnow() - timedelta(days=90)
-            
+
             # Находим группы для удаления
             stmt = select(ManagedGroup).where(
                 and_(
@@ -212,7 +212,7 @@ class CleanupService:
             
             orphan_sources = []
             cutoff_date = datetime.utcnow() - timedelta(days=0)  # Сразу удаляем
-            
+
             for source in all_sources:
                 if source.source_global_id not in subscribed_ids:
                     # Проверяем возраст источника
@@ -271,7 +271,7 @@ class CleanupService:
         
         try:
             now = datetime.utcnow()
-            
+
             # Очищаем основной кеш
             stmt_main = select(CachedMedia).where(CachedMedia.expires_at < now)
             result_main = await session.execute(stmt_main)

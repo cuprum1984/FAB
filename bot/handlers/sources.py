@@ -356,7 +356,7 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
             
             source.last_successful_post_id = first_post_id
             source.last_successful_post_timestamp = datetime.utcnow()
-            
+
         elif source_type == "youtube":
             source, created = await get_or_create_content_source(
                 session=session,
@@ -377,7 +377,7 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
             video_id_num = int(hashlib.md5(last_video_id.encode()).hexdigest()[:15], 16) % (10**15)
             source.last_successful_post_id = video_id_num
             source.last_successful_post_timestamp = datetime.utcnow()
-        
+
         source.last_checked_timestamp = datetime.utcnow()
         
         # 🔥 КОММИТИМ В БД
