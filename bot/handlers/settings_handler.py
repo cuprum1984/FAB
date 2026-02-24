@@ -44,7 +44,12 @@ logger.info(f"bot.middlewares.i18n path: {bot.middlewares.i18n.__file__}")
 router = Router(name="settings")
 
 # Константы для текстов кнопок (без локализации в декораторах!)
-SETTINGS_BUTTONS = ["⚙️ Настройки", "⚙️ Settings"]
+SETTINGS_BUTTONS = [
+    "⚙️ Настройки",
+    "⚙️ Settings",
+    "⚙️ Налаштування",
+    "⚙️ Налады"
+]
 # Все остальные кнопки используют локализованный текст
 
 @router.callback_query(~F.data.startswith("set_lang:") & ~(F.data == "back_to_settings"))  # Исключаем set_lang и back_to_settings из дебага
@@ -89,21 +94,23 @@ async def cmd_settings(message: Message, state: FSMContext, session: AsyncSessio
 async def settings_main_menu(message: Message, state: FSMContext, get_text: GetTextFunc):
     """Обработка всех кнопок меню настроек: Назад, Язык, Удаление данных"""
     from core.utils.i18n import create_i18n
-    
+
+    # Собираем тексты кнопок для всех поддерживаемых языков
     i18n_ru = create_i18n('ru')
     i18n_en = create_i18n('en')
-    
-    back_ru = i18n_ru.get(['keyboards', 'settings_menu', 'back'])
-    back_en = i18n_en.get(['keyboards', 'settings_menu', 'back'])
-    lang_ru = i18n_ru.get(['keyboards', 'settings_menu', 'language'])
-    lang_en = i18n_en.get(['keyboards', 'settings_menu', 'language'])
-    delete_ru = i18n_ru.get(['keyboards', 'settings_menu', 'delete_data'])
-    delete_en = i18n_en.get(['keyboards', 'settings_menu', 'delete_data'])
-    
+    i18n_uk = create_i18n('uk')
+    i18n_be = create_i18n('be')
+
+    all_i18n = [i18n_ru, i18n_en, i18n_uk, i18n_be]
+
+    back_texts = [i18n.get(['keyboards', 'settings_menu', 'back']) for i18n in all_i18n]
+    lang_texts = [i18n.get(['keyboards', 'settings_menu', 'language']) for i18n in all_i18n]
+    delete_texts = [i18n.get(['keyboards', 'settings_menu', 'delete_data']) for i18n in all_i18n]
+
     text = message.text
-    
+
     # 1. Кнопка "Назад" → главное меню
-    if text in [back_ru, back_en]:
+    if text in back_texts:
         logger.info(f"✅ Кнопка 'Назад' распознана, возвращаемся в главное меню")
         await message.answer(
             get_text(['common', 'menu']),
@@ -112,19 +119,18 @@ async def settings_main_menu(message: Message, state: FSMContext, get_text: GetT
         )
         await state.clear()
         return
-    
-    # 2. Кнопка "Язык" → выбор языка
-    if text in [lang_ru, lang_en]:
+
+    # 2. Кнопка "Язык" → выбор языка (только inline-клавиатура)
+    if text in lang_texts:
         await message.answer(
-            get_text(['settings', 'language_prompt']),
-            parse_mode="HTML",
+            get_text(['keyboards', 'language_menu', 'prompt']),  # "Выберите язык:"
             reply_markup=get_language_menu(get_text)
         )
         await state.set_state(Settings.language)
         return
-    
+
     # 3. Кнопка "Удалить данные" → подтверждение
-    if text in [delete_ru, delete_en]:
+    if text in delete_texts:
         await message.answer(
             get_text(['settings', 'delete_warning']),
             parse_mode="HTML",
@@ -132,7 +138,7 @@ async def settings_main_menu(message: Message, state: FSMContext, get_text: GetT
         )
         await state.set_state(Settings.confirm_delete)
         return
-    
+
     # Неизвестная кнопка — показываем меню настроек снова
     logger.debug(f"Неизвестный текст в настройках: '{text}'")
 

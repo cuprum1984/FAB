@@ -63,10 +63,14 @@ router = Router(name="sources")
 
 USERNAME_REGEX = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{4,31}$")
 
+# Константы для кнопок источников
+ADD_CHANNEL_BUTTONS = ["✚ Добавить канал", "✚ Add channel", "✚ Додати канал", "✚ Дадаць канал"]
+MY_SOURCES_BUTTONS = ["📚 Мои источники", "📚 My sources", "📚 Мої джерела", "📚 Маё крыніцы"]
+
 
 @router.message(Command("add"))
-@router.message(F.text.in_({"✚ Добавить канал", "✚ Add channel"}))
-async def cmd_add_channel(message: Message, state: FSMContext, session: AsyncSession, get_text: callable): 
+@router.message(F.text.in_(ADD_CHANNEL_BUTTONS))
+async def cmd_add_channel(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
     """Начать процесс добавления канала."""
     
     logger.info(f"📥 Пользователь {message.from_user.id} начал добавление канала")
@@ -770,7 +774,7 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
 
 
 @router.message(Command(commands=["list", "mysources"]))
-@router.message(F.text.in_({"📚 Мои источники", "📚 My sources"}))
+@router.message(F.text.in_(MY_SOURCES_BUTTONS))
 async def cmd_my_sources(message: Message, session: AsyncSession, get_text: callable):
     """Показать источники пользователя сгруппированные по группам и темам"""
     user_id = message.from_user.id

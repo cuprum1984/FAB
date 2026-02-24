@@ -61,8 +61,15 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
     )
 
 
+# Константы для кнопок главного меню
+HELP_BUTTONS = ["❓ Помощь", "❓ Help", "❓ Довідка", "❓ Даведка"]
+MAIN_MENU_BUTTONS = ["🏠 Главное меню", "🏠 Main menu", "🏠 Головне меню", "🏠 Галоўнае меню"]
+CANCEL_BUTTONS = ["❌ Отмена", "❌ Cancel", "❌ Скасування", "❌ Скасаванне"]
+REFRESH_BUTTONS = ["🔄 Обновить", "🔄 Refresh", "🔄 Оновити", "🔄 Абнавіць"]
+
+
 @router.message(Command("help"))
-@router.message(F.text.in_({"❓ Помощь", "❓ Help"}))
+@router.message(F.text.in_(HELP_BUTTONS))
 async def cmd_help(message: Message, get_text: callable):
     """Обработчик команды /help"""
     await message.answer(
@@ -72,7 +79,7 @@ async def cmd_help(message: Message, get_text: callable):
     )
 
 
-@router.message(F.text.in_({"🏠 Главное меню", "🏠 Main menu"}))
+@router.message(F.text.in_(MAIN_MENU_BUTTONS))
 async def cmd_menu(message: Message, state: FSMContext, get_text: callable):
     """Возврат в меню"""
     await state.clear()
@@ -84,8 +91,7 @@ async def cmd_menu(message: Message, state: FSMContext, get_text: callable):
 
 
 @router.message(Command("cancel"))
-@router.message(F.text == "❌ Отмена")
-@router.message(F.text == "❌ Cancel")
+@router.message(F.text.in_(CANCEL_BUTTONS))
 async def cmd_cancel(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
     """Отмена текущего действия"""
     current_state = await state.get_state()
@@ -96,7 +102,7 @@ async def cmd_cancel(message: Message, state: FSMContext, session: AsyncSession,
             reply_markup=get_main_menu(get_text)
         )
         return
-    
+
     await state.clear()
     await message.answer(
         get_text(['common', 'cancel']),
@@ -106,7 +112,7 @@ async def cmd_cancel(message: Message, state: FSMContext, session: AsyncSession,
 
 
 @router.message(Command("refresh"))
-@router.message(F.text.in_({"🔄 Обновить", "🔄 Refresh"}))
+@router.message(F.text.in_(REFRESH_BUTTONS))
 async def cmd_refresh(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
     """Обновить интерфейс (как /start, но мягче)"""
     

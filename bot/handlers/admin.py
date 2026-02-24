@@ -40,26 +40,31 @@ logger = logging.getLogger(__name__)
 
 router = Router(name="admin")
 
+# Константы для кнопок админ-панели
+ADMIN_PANEL_BUTTONS = ["👨‍💼 Админ-панель", "👨‍💼 Admin panel", "👨‍💼 Адмін-панель", "👨‍💼 Адмін-панэль"]
+MANAGE_GROUPS_BUTTONS = ["👥 Управление группами", "👥 Manage groups", "👥 Управління групами", "👥 Кіраванне групамі"]
+BACK_BUTTONS = ["← Назад", "← Back", "← Назад", "← Назад"]
 
-@router.message(F.text.in_({"👨‍💼 Админ-панель", "👨‍💼 Admin panel"}))
+
+@router.message(F.text.in_(ADMIN_PANEL_BUTTONS))
 async def open_admin_panel(message: Message, state: FSMContext, get_text: callable):
     """Открыть админ-панель."""
     await message.answer(
         get_text(['admin', 'panel']),
-        parse_mode="HTML", 
+        parse_mode="HTML",
         reply_markup=get_admin_panel_menu(get_text)
     )
     await state.set_state(AdminPanel.main)
 
 
-@router.message(AdminPanel.main, F.text.in_({"👥 Управление группами", "👥 Manage groups"}))
+@router.message(AdminPanel.main, F.text.in_(MANAGE_GROUPS_BUTTONS))
 async def manage_groups_start(message: Message, session: AsyncSession, state: FSMContext, get_text: callable):
     """Управление группами."""
     user_id = message.from_user.id
-    
+
     # Получаем группы пользователя
     groups = await get_user_groups(user_id, session)
-    
+
     if not groups:
         await message.answer(
             get_text(['admin', 'no_groups']),
@@ -67,10 +72,10 @@ async def manage_groups_start(message: Message, session: AsyncSession, state: FS
             reply_markup=get_admin_panel_menu(get_text)
         )
         return
-    
+
     # Сохраняем группы в состояние для следующих шагов
     await state.update_data(groups_for_manage=groups)
-    
+
     await message.answer(
         get_text(['admin', 'groups_found'], count=len(groups)),
         parse_mode="HTML",
@@ -84,13 +89,13 @@ async def manage_group_selected(message: Message, state: FSMContext, session: As
     """Пользователь выбрал конкретную группу."""
     data = await state.get_data()
     groups = data.get("groups_for_manage", [])
-    
+
     # Если groups нет в состоянии, получаем заново
     if not groups:
         user_id = message.from_user.id
         groups = await get_user_groups(user_id, session)
-    
-    if message.text in ("← Назад", "← Back"):
+
+    if message.text in BACK_BUTTONS:
         await message.answer(
             get_text(['admin', 'panel']),
             parse_mode="HTML", 
