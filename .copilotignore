@@ -149,12 +149,15 @@ debug_db.py
 redis_data.json
 *.md
 scripts/
-tests/
 План действий.md
 PROMPTS/
 run_cleanup.py
-.copilotignore
-
+tests/.pytest_cache/
+tests/__pycache__/
+.coverage
+.qwen/
+t_aiohttp.py
+t_dns/
 
 # Spyder project settings
 .spyderproject
