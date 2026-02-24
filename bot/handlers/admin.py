@@ -459,8 +459,13 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
     topic_result = await session.execute(topic_stmt)
     existing_topic = topic_result.scalar_one_or_none()
     
-    # ===== 6. ЕСЛИ ТЕМА УЖЕ ЕСТЬ - ПРОСТО ПОКАЗЫВАЕМ ИНФОРМАЦИЮ =====
+    # ===== 6. ЕСЛИ ТЕМА УЖЕ ЕСТЬ - ОБНОВЛЯЕМ ИНФОРМАЦИЮ =====
     if existing_topic:
+        # ✅ Обновляем last_seen_at и флаг существования
+        existing_topic.last_seen_at = datetime.utcnow()
+        existing_topic.is_exists_in_tg = True
+        await session.commit()
+        
         thread_display = "General" if is_general else thread_id
         await message.answer(
             get_text(['admin', 'plus_already_exists'],
@@ -469,28 +474,22 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
                     identifier=topic_identifier),
             parse_mode="HTML"
         )
-        logger.info(f"✅ Тема уже существует: '{existing_topic.topic_name}' (ID: {thread_id})")
-        return  # ✅ ВАЖНО: прерываем выполнение, не создаём новую
+        logger.info(f"✅ Тема обновлена: '{existing_topic.topic_name}' (ID: {thread_id})")
+        return  # ✅ ВАЖНО: не создаём дубликат
     
-    # ===== 7. ЕСЛИ ТЕМЫ НЕТ В БД, ПЫТАЕМСЯ ПОЛУЧИТЬ НАЗВАНИЕ =====
+    # ===== 7. ЕСЛИ ТЕМЫ НЕТ В БД, ПОЛУЧАЕМ НАЗВАНИЕ =====
     topic_name = None
-    
+
     if is_general:
         topic_name = "General"
         logger.info("📝 Создание General темы")
     else:
-        # 🔥 ИСПРАВЛЕНО: сначала пробуем получить название через get_chat
-        try:
-            chat = await bot.get_chat(chat_id)
-            # Для тем нужно использовать другой метод
-            # В aiogram нет прямого метода для получения названия темы по ID
-            # Поэтому используем то, что сохранил topics_auto
-            topic_name = f"Topic {thread_id}"  # fallback
-            logger.info(f"📝 Использую fallback название: '{topic_name}'")
-        except Exception as e:
-            logger.error(f"❌ Ошибка получения названия темы: {e}")
-            topic_name = f"Topic {thread_id}"
-        
+        # ⚠️ В Telegram Bot API нет метода для получения названия существующей темы
+        # Поэтому используем fallback название, которое обновится при переименовании
+        # через topics_auto.py (forum_topic_edited)
+        topic_name = f"Topic {thread_id}"
+        logger.info(f"📝 Используем временное название: '{topic_name}' (обновится при переименовании)")
+
         await message.answer(
             get_text(['admin', 'plus_not_found'], name=topic_name),
             parse_mode="HTML"

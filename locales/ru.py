@@ -110,6 +110,12 @@ MESSAGES = {
             "refresh": "🔄 Обновить список",
             "placeholder": "Куда отправлять посты?...",
         },
+
+        "destinations_inline": {
+            "prev": "◀️ Назад",
+            "next": "Вперед ▶️",
+            "noop": "⏺️",
+        },
         
         "cancel": "❌ Отмена",
         "back": "← Назад",
@@ -305,8 +311,9 @@ MESSAGES = {
                               "📝 Последнее видео ID: {video_id}\n\n"
                               "⏳ Обработка...",
         "add_saved": "📌 Теперь выберите группу/тему для отправки последнего поста:",
-        
+
         "destination_not_found": "❌ Не удалось распознать выбор. Пожалуйста, выберите из списка:",
+        "destination_use_inline": "⚠️ Пожалуйста, выберите группу/тему из inline-клавиатуры выше.",
         "destination_already_exists": "✅ Этот канал уже добавлен в {destination}.",
         "destination_success_telegram": "✅ Канал @{username} успешно добавлен!\n\n"
                                         "📥 Отправлен последний пост (ID: {post_id})\n"

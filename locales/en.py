@@ -114,7 +114,13 @@ MESSAGES = {
             "refresh": "🔄 Refresh list",
             "placeholder": "Where to send posts?...",
         },
-        
+
+        "destinations_inline": {
+            "prev": "◀️ Back",
+            "next": "Forward ▶️",
+            "noop": "⏺️",
+        },
+
         # Cancel/back
         "cancel": "❌ Cancel",
         "back": "← Back",
@@ -319,9 +325,10 @@ MESSAGES = {
                               "📝 Last video ID: {video_id}\n\n"
                               "⏳ Processing...",
         "add_saved": "📌 Now choose a group/topic to send the last post to:",
-        
+
         # Destination choice
         "destination_not_found": "❌ Could not recognize your choice. Please select from the list:",
+        "destination_use_inline": "⚠️ Please select a group/topic from the inline keyboard above.",
         "destination_already_exists": "✅ This channel is already added to {destination}.",
         "destination_success_telegram": "✅ Channel @{username} successfully added!\n\n"
                                         "📥 Last post sent (ID: {post_id})\n"

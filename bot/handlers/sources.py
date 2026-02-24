@@ -48,6 +48,7 @@ from bot.keyboards import (
     get_main_menu,
     get_source_list_kb,
     get_destinations_menu,
+    get_destinations_inline_kb,
     get_cancel_kb_reply,
     get_confirm_channel_kb,
     get_cancel_kb
@@ -432,12 +433,22 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
             )
         
         # ✅ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ С КЛАВИАТУРОЙ
+        # Reply клавиатура с одной кнопкой "Отмена"
+        reply_kb = get_destinations_menu(destinations, get_text)
+        # Inline клавиатура с пагинацией по группам
+        inline_kb = get_destinations_inline_kb(destinations, page=0, get_text=get_text)
+        
         await callback.message.answer(
             get_text(['sources', 'add_saved']),
             parse_mode="HTML",
-            reply_markup=get_destinations_menu(destinations, get_text)
+            reply_markup=inline_kb
         )
-        
+        # Отправляем отдельное сообщение с Reply кнопкой "Отмена"
+        await callback.message.answer(
+            get_text(['keyboards', 'destinations', 'placeholder']),
+            reply_markup=reply_kb
+        )
+
         await state.set_state(AddChannel.choose_destination)
         
     except Exception as e:
@@ -460,67 +471,89 @@ async def cancel_add_channel(callback: CallbackQuery, state: FSMContext, get_tex
     )
     await state.clear()
     await callback.message.answer(
-        get_text(['common', 'menu']), 
-        parse_mode="HTML", 
+        get_text(['common', 'menu']),
+        parse_mode="HTML",
         reply_markup=get_main_menu(get_text)
     )
 
 
-@router.message(AddChannel.choose_destination)
-async def process_destination_choice(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
-    """Обработать выбор группы/темы и ОТПРАВИТЬ ТОЛЬКО 1 ПОСТ"""
+# ========== INLINE CALLBACK HANDLERS FOR DESTINATIONS ==========
+
+@router.callback_query(AddChannel.choose_destination, F.data.startswith("dest_select:"))
+async def process_destination_inline(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Обработать выбор destination через inline кнопку"""
+    
+    await callback.answer()
+    
+    topic_identifier = callback.data.split(":", 1)[1]
     
     data = await state.get_data()
     destinations = data.get("destinations", [])
     source_global_id = data.get("source_global_id")
     source_type = data.get("source_type", "telegram")
     
-    if message.text in ("❌ Отмена", "❌ Cancel"):
-        await message.answer(
-            get_text(['sources', 'add_cancelled']),
-            reply_markup=get_main_menu(get_text)
+    # Ищем выбранный destination по topic_identifier
+    chosen = None
+    for d in destinations:
+        if d["topic_identifier"] == topic_identifier:
+            chosen = d
+            break
+    
+    if not chosen:
+        await callback.message.edit_text(
+            get_text(['sources', 'destination_not_found']),
+            parse_mode="HTML"
         )
         await state.clear()
         return
+    
+    # Удаляем сообщение с inline клавиатурой
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    
+    # Обрабатываем выбор
+    await finalize_destination_choice(callback, chosen, data, state, session, get_text)
 
-    # Получаем текст кнопки как есть
-    user_input = message.text.strip()
+
+@router.callback_query(AddChannel.choose_destination, F.data.startswith("dest_page:"))
+async def navigate_destinations(callback: CallbackQuery, state: FSMContext, get_text: callable):
+    """Навигация по страницам destinations"""
     
-    logger.info(f"🔍 Пользователь выбрал: '{user_input}'")
-    logger.debug(f"📋 Доступные destinations: {[d['display_name'] for d in destinations]}")
+    page = int(callback.data.split(":", 1)[1])
     
-    # Ищем выбранный destination
-    chosen = None
+    data = await state.get_data()
+    destinations = data.get("destinations", [])
     
-    # Сначала ищем по точному совпадению
-    for d in destinations:
-        button_text = user_input
-        if button_text[:2] in ["💬 ", "🗨️ ", "👥 ", "📰 ", "🎯 "]:
-            clean_input = button_text[2:].strip()
-        else:
-            clean_input = button_text
-            
-        if d['display_name'] == clean_input or d['display_name'] == user_input:
-            chosen = d
-            logger.info(f"✅ Найдено совпадение: {d['display_name']}")
-            break
+    # Обновляем inline клавиатуру с новой страницей
+    inline_kb = get_destinations_inline_kb(destinations, page=page, get_text=get_text)
     
-    # Если не нашли, ищем по вхождению
-    if not chosen:
-        for d in destinations:
-            if d['display_name'] in user_input:
-                chosen = d
-                logger.info(f"✅ Найдено по частичному совпадению: {d['display_name']}")
-                break
-    
-    if not chosen:
-        await message.answer(
-            get_text(['sources', 'destination_not_found']),
+    try:
+        await callback.message.edit_text(
+            get_text(['sources', 'add_saved']),
             parse_mode="HTML",
-            reply_markup=get_destinations_menu(destinations, get_text)
+            reply_markup=inline_kb
         )
-        return
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось обновить клавиатуру destinations: {e}")
+    
+    await callback.answer()
 
+
+async def finalize_destination_choice(
+    callback: CallbackQuery,
+    chosen: dict,
+    data: dict,
+    state: FSMContext,
+    session: AsyncSession,
+    get_text: callable
+):
+    """Финальная обработка выбора destination - отправка поста"""
+    
+    source_global_id = data.get("source_global_id")
+    source_type = data.get("source_type", "telegram")
+    
     try:
         chat_id = chosen["chat_id"]
         topic_identifier = chosen["topic_identifier"]
@@ -542,7 +575,7 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
                     source_global_id=source_global_id,
                     source_type="telegram",
                     telegram_username=username,
-                    title=title
+                    channel_title=title
                 )
             elif source_type == "youtube":
                 channel_id = data.get("channel_id")
@@ -556,7 +589,7 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
                     source_global_id=source_global_id,
                     source_type="youtube",
                     feed_url=feed_url,
-                    title=title
+                    channel_title=title
                 )
                 # Добавляем специфичные поля
                 source.youtube_username = username
@@ -570,7 +603,7 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
             subscription = await create_source_subscription(
                 chat_id=chat_id,
                 source_global_id=source_global_id,
-                added_by_id=message.from_user.id,
+                added_by_id=callback.from_user.id,
                 session=session
             )
             logger.info(f"✅ Создана подписка ID: {subscription.subscription_id}")
@@ -588,7 +621,7 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
         existing_assignment = existing_result.scalar_one_or_none()
         
         if existing_assignment:
-            await message.answer(
+            await callback.message.answer(
                 get_text(['sources', 'destination_already_exists'], destination=chosen['display_name']),
                 parse_mode="HTML",
                 reply_markup=get_main_menu(get_text)
@@ -624,7 +657,7 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
                     if first_post.get('post_id'):
                         message_text += f"\n\n<a href='https://t.me/{username}/{first_post_id}'>🔗 Оригинал</a>"
                     
-                    await message.bot.send_message(
+                    await callback.message.bot.send_message(
                         chat_id=chat_id,
                         message_thread_id=chosen.get('thread_id'),
                         text=message_text,
@@ -632,29 +665,26 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
                         disable_web_page_preview=False
                     )
                     logger.info(f"✅ Отправлен первый пост ID: {first_post_id}")
-                    
+                
                 except Exception as send_error:
                     logger.error(f"❌ Ошибка отправки первого поста: {send_error}")
         
         elif source_type == "youtube":
             first_video_id = data.get("first_video_id")
             username = data.get("youtube_username") or data.get("channel_id", "")[:8]
-            channel_title = data.get("source_title")  # Название канала
+            channel_title = data.get("source_title")
             
             if first_video_id:
                 try:
-                    # 🔥 ИСПРАВЛЕНО: формат "Название | @username" для YouTube
                     if channel_title:
                         source_name = f"{channel_title} | @{username}"
                     else:
                         source_name = f"YouTube канал @{username}"
                     
                     video_url = f"https://youtu.be/{first_video_id}"
-                    
-                    # Формируем одно сообщение со ссылкой
                     message_text = f"{video_url}\n\n<b>{source_name}</b>"
                     
-                    await message.bot.send_message(
+                    await callback.message.bot.send_message(
                         chat_id=chat_id,
                         message_thread_id=chosen.get('thread_id'),
                         text=message_text,
@@ -663,7 +693,7 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
                     )
                     
                     logger.info(f"✅ Отправлено первое видео: {first_video_id}")
-                    
+                
                 except Exception as send_error:
                     logger.error(f"❌ Ошибка отправки первого видео: {send_error}")
         
@@ -671,7 +701,7 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
         if source_type == "telegram":
             username = data.get("source_username")
             first_post_id = data.get("first_post_id")
-            await message.answer(
+            await callback.message.answer(
                 get_text(['sources', 'destination_success_telegram'],
                         username=username,
                         post_id=first_post_id,
@@ -684,7 +714,7 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
         elif source_type == "youtube":
             username = data.get("youtube_username")
             first_video_id = data.get("first_video_id")
-            await message.answer(
+            await callback.message.answer(
                 get_text(['sources', 'destination_success_youtube'],
                         username=username,
                         video_id=first_video_id,
@@ -693,11 +723,11 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
                 reply_markup=get_main_menu(get_text)
             )
             logger.info(f"✅ YouTube канал @{username} добавлен, отправлено 1 видео")
-        
+    
     except Exception as e:
         await session.rollback()
-        logger.error(f"❌ Ошибка в process_destination_choice: {e}", exc_info=True)
-        await message.answer(
+        logger.error(f"❌ Ошибка в finalize_destination_choice: {e}", exc_info=True)
+        await callback.message.answer(
             get_text(['sources', 'destination_error'], error=str(e)[:200]),
             parse_mode="HTML",
             reply_markup=get_main_menu(get_text)
@@ -706,6 +736,37 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
     finally:
         await state.clear()
         logger.info(f"✅ Состояние очищено")
+
+
+@router.message(AddChannel.choose_destination)
+async def process_destination_choice(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
+    """
+    Обработать выбор группы/темы.
+    ⚠️ ТЕПЕРЬ РАБОТАЕТ ТОЛЬКО ДЛЯ ОТМЕНЫ (текстовое сообщение)
+    """
+    
+    data = await state.get_data()
+    source_type = data.get("source_type", "telegram")
+    
+    # Проверяем, не является ли это сообщение об ошибке или другое
+    if message.text and message.text.strip() == "❌ Отмена":
+        await message.answer(
+            get_text(['sources', 'add_cancelled']),
+            reply_markup=get_main_menu(get_text)
+        )
+        await state.clear()
+        # Удаляем предыдущее сообщение с inline клавиатурой
+        try:
+            await message.delete()
+        except:
+            pass
+        return
+    
+    # Игнорируем другие сообщения
+    await message.answer(
+        get_text(['sources', 'destination_use_inline']),
+        parse_mode="HTML"
+    )
 
 
 @router.message(Command(commands=["list", "mysources"]))
