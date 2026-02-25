@@ -47,47 +47,47 @@ class YouTubeSimpleMonitoringService:
         try:
             # Получаем последнее видео через простой парсер
             video_id = await self.parser.get_latest_video_id(username)
-            
+
             if not video_id:
                 logger.debug(f"📭 Не удалось получить видео для {source_name}")
                 source.last_checked_timestamp = datetime.utcnow()
                 await session.flush()
                 return
-            
+
             # Проверяем, новое ли видео
             if source.last_video_id == video_id:
                 logger.debug(f"📭 Нет новых видео в {source_name} (последнее: {video_id})")
                 source.last_checked_timestamp = datetime.utcnow()
                 await session.flush()
                 return
-            
+
             logger.info(f"✅ Найдено НОВОЕ видео в {source_name}: {video_id}")
-            
+
             # Получаем назначения
             assignments = await self._get_source_assignments(source.source_global_id, session)
-            
+
             if not assignments:
                 logger.debug(f"📭 Нет активных назначений для {source_name}")
                 source.last_checked_timestamp = datetime.utcnow()
                 await session.flush()
                 return
-            
+
             # Отправляем видео
             await self._send_video(video_id, source, assignments, session)
-            
+
             # Обновляем информацию в БД
             source.last_video_id = video_id
-            
+
             # Для обратной совместимости обновляем числовой хеш
             import hashlib
             video_id_num = int(hashlib.md5(video_id.encode()).hexdigest()[:15], 16) % (10**15)
             source.last_successful_post_id = video_id_num
-            
+
             source.last_checked_timestamp = datetime.utcnow()
             await session.flush()
-            
+
             logger.info(f"✅ Обработано новое видео {video_id} из {source_name}")
-            
+
         except Exception as e:
             logger.error(f"❌ Ошибка проверки YouTube канала {source_name}: {e}")
             await session.rollback()

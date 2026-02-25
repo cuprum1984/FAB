@@ -28,7 +28,7 @@ def get_main_menu(get_text: GetTextFunc) -> ReplyKeyboardMarkup:
         btn_settings = get_text(['keyboards', 'main_menu', 'settings'])
         btn_help = get_text(['keyboards', 'main_menu', 'help'])
         btn_refresh = get_text(['keyboards', 'main_menu', 'refresh'])
-        btn_admin_panel = get_text(['keyboards', 'main_menu', 'admin_panel'])
+        #btn_admin_panel = get_text(['keyboards', 'main_menu', 'admin_panel'])
         placeholder = get_text(['keyboards', 'main_menu', 'placeholder'])
     except Exception as e:
         logger.error(f"Ошибка локализации меню: {e}")
@@ -36,14 +36,14 @@ def get_main_menu(get_text: GetTextFunc) -> ReplyKeyboardMarkup:
         btn_add, btn_sources = "✚ Добавить", "📚 Источники"
         btn_feed = "📰 Лента"
         btn_settings, btn_help = "⚙️ Настройки", "❓ Помощь"
-        btn_admin_panel = "👨‍💼 Админ-панель"
+        #btn_admin_panel = "👨‍💼 Админ-панель"
         btn_refresh = "🔄 Обновить"
         placeholder = "Выберите действие..."
 
     # Строим сетку кнопок
     builder.row(KeyboardButton(text=btn_add), KeyboardButton(text=btn_sources))
     builder.row(KeyboardButton(text=btn_feed), KeyboardButton(text=btn_help))
-    builder.row(KeyboardButton(text=btn_settings), KeyboardButton(text=btn_admin_panel), KeyboardButton(text=btn_refresh))
+    builder.row(KeyboardButton(text=btn_settings), KeyboardButton(text=btn_refresh)) #KeyboardButton(text=btn_admin_panel)
 
     # .as_markup() ОБЯЗАТЕЛЬНО должен быть с resize_keyboard=True
     return builder.as_markup(
@@ -289,24 +289,30 @@ def get_cancel_kb(get_text: GetTextFunc) -> InlineKeyboardMarkup:
 def get_language_menu(get_text: GetTextFunc) -> InlineKeyboardMarkup:
     """Инлайн клавиатура для выбора языка"""
     builder = InlineKeyboardBuilder()
-    
+
     # Используем локализацию для текстов кнопок
     ru_text = get_text(['keyboards', 'language_menu', 'ru'])
     en_text = get_text(['keyboards', 'language_menu', 'en'])
+    uk_text = get_text(['keyboards', 'language_menu', 'uk'])
+    be_text = get_text(['keyboards', 'language_menu', 'be'])
     back_text = get_text(['keyboards', 'language_menu', 'back'])
-    
+
     builder.row(
         InlineKeyboardButton(text=ru_text, callback_data="set_lang:ru"),
         InlineKeyboardButton(text=en_text, callback_data="set_lang:en")
     )
-    
+    builder.row(
+        InlineKeyboardButton(text=uk_text, callback_data="set_lang:uk"),
+        InlineKeyboardButton(text=be_text, callback_data="set_lang:be")
+    )
+
     builder.row(
         InlineKeyboardButton(
-            text=back_text, 
+            text=back_text,
             callback_data="back_to_settings"
         )
     )
-    
+
     return builder.as_markup()
 
 

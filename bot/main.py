@@ -71,8 +71,8 @@ async def set_bot_commands(bot: Bot):
         BotCommand(command="add", description="➕ Добавить канал"),
         BotCommand(command="list", description="📋 Мои источники"),
         BotCommand(command="mytopics", description="🗂️ Мои темы"),
-        BotCommand(command="refresh", description="🔄 Принудительная проверка"),
-        BotCommand(command="activ", description="✅ Активировать группу"),
+        BotCommand(command="refresh", description="[LOOP] Принудительная проверка"),
+        BotCommand(command="activ", description="[OK] Активировать группу"),
     ]
     
     # Английские команды
@@ -82,13 +82,13 @@ async def set_bot_commands(bot: Bot):
         BotCommand(command="add", description="➕ Add channel"),
         BotCommand(command="list", description="📋 My sources"),
         BotCommand(command="mytopics", description="🗂️ My topics"),
-        BotCommand(command="refresh", description="🔄 Force check"),
-        BotCommand(command="activ", description="✅ Activate group"),
+        BotCommand(command="refresh", description="[LOOP] Force check"),
+        BotCommand(command="activ", description="[OK] Activate group"),
     ]
     
     # Устанавливаем русские команды как default
     await bot.set_my_commands(ru_commands, scope=BotCommandScopeDefault())
-    logger.info(f"✅ Установлены команды по умолчанию (русский)")
+    logger.info(f"[OK] Установлены команды по умолчанию (русский)")
     
     # Здесь мы не можем установить команды для каждого пользователя индивидуально,
     # потому что это нужно делать при каждом запуске бота.
@@ -104,8 +104,8 @@ async def update_user_commands(bot: Bot, user_id: int, language: str):
             BotCommand(command="add", description="➕ Add channel"),
             BotCommand(command="list", description="📋 My sources"),
             BotCommand(command="mytopics", description="🗂️ My topics"),
-            BotCommand(command="refresh", description="🔄 Force check"),
-            BotCommand(command="activ", description="✅ Activate group"),
+            BotCommand(command="refresh", description="[LOOP] Force check"),
+            BotCommand(command="activ", description="[OK] Activate group"),
         ]
     else:
         commands = [
@@ -114,13 +114,13 @@ async def update_user_commands(bot: Bot, user_id: int, language: str):
             BotCommand(command="add", description="➕ Добавить канал"),
             BotCommand(command="list", description="📋 Мои источники"),
             BotCommand(command="mytopics", description="🗂️ Мои темы"),
-            BotCommand(command="refresh", description="🔄 Принудительная проверка"),
-            BotCommand(command="activ", description="✅ Активировать группу"),
+            BotCommand(command="refresh", description="[LOOP] Принудительная проверка"),
+            BotCommand(command="activ", description="[OK] Активировать группу"),
         ]
     
     scope = BotCommandScopeChat(chat_id=user_id)
     await bot.set_my_commands(commands, scope=scope)
-    logger.info(f"✅ Обновлены команды для пользователя {user_id}: {language}")
+    logger.info(f"[OK] Обновлены команды для пользователя {user_id}: {language}")
 
 
 async def check_connections() -> bool:
@@ -128,24 +128,24 @@ async def check_connections() -> bool:
     try:
         redis_ok = await check_redis_connection()
         if not redis_ok:
-            logger.error("❌ Redis не отвечает")
+            logger.error("[ERROR] Redis не отвечает")
             return False
-        logger.info("✅ Redis подключён и работает")
+        logger.info("[OK] Redis подключён и работает")
         
         db_ok = await check_db_connection()
         if not db_ok:
-            logger.error("❌ База данных не отвечает")
+            logger.error("[ERROR] База данных не отвечает")
             return False
-        logger.info("✅ База данных подключена и работает")
+        logger.info("[OK] База данных подключена и работает")
         
         # Инициализируем YouTube HTML парсер
         youtube_parser = get_youtube_parser()
         if youtube_parser:
-            logger.info("✅ YouTube HTML парсер инициализирован")
+            logger.info("[OK] YouTube HTML парсер инициализирован")
         
         return True
     except Exception as e:
-        logger.error(f"❌ Ошибка при проверке подключений: {e}")
+        logger.error(f"[ERROR] Ошибка при проверке подключений: {e}")
         return False
 
 
@@ -159,18 +159,18 @@ async def on_startup(bot: Bot):
     
     try:
         await init_db()
-        logger.info("✅ База данных инициализирована")
+        logger.info("[OK] База данных инициализирована")
         
         await redis_client.init()
-        logger.info("✅ Redis клиент инициализирован")
+        logger.info("[OK] Redis клиент инициализирован")
         
         if not await check_connections():
-            logger.warning("⚠️ Бот будет запущен, но возможны проблемы")
+            logger.warning("[WARN] Бот будет запущен, но возможны проблемы")
         
         await set_bot_commands(bot)
         
         await start_monitoring(bot, interval_minutes=5)
-        logger.info("✅ Мониторинг источников запущен")
+        logger.info("[OK] Мониторинг источников запущен")
         
         logger.info("📦 Компоненты:")
         logger.info("  • Основной бот: v5.2")
@@ -181,11 +181,11 @@ async def on_startup(bot: Bot):
         logger.info("  • Темы: авто-сохранение через Bot API")
         
         logger.info("=" * 50)
-        logger.info("🤖 БОТ ГОТОВ К РАБОТЕ")
+        logger.info("[BOT] БОТ ГОТОВ К РАБОТЕ")
         logger.info("=" * 50)
         
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка при запуске: {e}", exc_info=True)
+        logger.error(f"[ERROR] Критическая ошибка при запуске: {e}", exc_info=True)
         raise
 
 
@@ -201,23 +201,23 @@ async def on_shutdown(bot: Bot):
     # Останавливаем мониторинг
     try:
         await stop_monitoring()
-        logger.info("✅ Мониторинг остановлен")
+        logger.info("[OK] Мониторинг остановлен")
     except Exception as e:
-        logger.error(f"❌ Ошибка при остановке мониторинга: {e}")
+        logger.error(f"[ERROR] Ошибка при остановке мониторинга: {e}")
     
     # Закрываем YouTube HTML парсер
     try:
         await close_youtube_parser()
-        logger.info("✅ YouTube простой парсер закрыт")
+        logger.info("[OK] YouTube простой парсер закрыт")
     except Exception as e:
-        logger.error(f"❌ Ошибка при закрытии YouTube HTML парсера: {e}")
+        logger.error(f"[ERROR] Ошибка при закрытии YouTube HTML парсера: {e}")
     
     # Закрываем Redis
     try:
         await redis_client.close()
-        logger.info("✅ Redis соединение закрыто")
+        logger.info("[OK] Redis соединение закрыто")
     except Exception as e:
-        logger.error(f"❌ Ошибка при закрытии Redis: {e}")
+        logger.error(f"[ERROR] Ошибка при закрытии Redis: {e}")
     
     # Завершаем фоновые задачи
     if tasks:
@@ -228,18 +228,18 @@ async def on_shutdown(bot: Bot):
         
         try:
             await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=5.0)
-            logger.info("✅ Все фоновые задачи завершены")
+            logger.info("[OK] Все фоновые задачи завершены")
         except asyncio.TimeoutError:
-            logger.warning("⚠️ Некоторые задачи не завершились вовремя")
+            logger.warning("[WARN] Некоторые задачи не завершились вовремя")
         except Exception as e:
-            logger.error(f"❌ Ошибка при завершении задач: {e}")
+            logger.error(f"[ERROR] Ошибка при завершении задач: {e}")
     
     # Закрываем сессию бота
     try:
         await bot.session.close()
-        logger.info("✅ Сессия бота закрыта")
+        logger.info("[OK] Сессия бота закрыта")
     except Exception as e:
-        logger.error(f"❌ Ошибка при закрытии сессии бота: {e}")
+        logger.error(f"[ERROR] Ошибка при закрытии сессии бота: {e}")
     
     logger.info("=" * 50)
     logger.info("👋 БОТ ОСТАНОВЛЕН")
@@ -270,15 +270,15 @@ async def main():
         try:
             redis = await redis_client.get_client()
             storage = RedisStorage(redis)
-            logger.info("✅ Используется RedisStorage (production)")
+            logger.info("[OK] Используется RedisStorage (production)")
         except Exception as e:
-            logger.error(f"❌ Не удалось подключиться к Redis: {e}")
-            logger.warning("⚠️ Использую MemoryStorage как fallback")
+            logger.error(f"[ERROR] Не удалось подключиться к Redis: {e}")
+            logger.warning("[WARN] Использую MemoryStorage как fallback")
             storage = MemoryStorage()
-            logger.info("✅ Используется MemoryStorage (fallback)")
+            logger.info("[OK] Используется MemoryStorage (fallback)")
     else:
         storage = MemoryStorage()
-        logger.info("✅ Используется MemoryStorage (режим разработки)")
+        logger.info("[OK] Используется MemoryStorage (режим разработки)")
     
     bot = Bot(
         token=settings.BOT_TOKEN,
@@ -296,7 +296,7 @@ async def main():
     dp.message.middleware(GroupCommandFilterMiddleware())  # 👈 НОВЫЙ
     dp.message.middleware(I18nMiddleware())           # 2. Потом i18n для сообщений
     dp.callback_query.middleware(I18nMiddleware())    # 3. И для callback (ОДИН РАЗ!)
-    logger.info("✅ Middleware для БД и i18n подключены")
+    logger.info("[OK] Middleware для БД и i18n подключены")
     
     # Подключаем роутеры
     dp.include_router(common.router)      # сначала общие     # потом источники
@@ -307,21 +307,37 @@ async def main():
     
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
-    
-    bot_info = await bot.get_me()
-    logger.info(f"🤖 Информация о боте:")
-    logger.info(f"  • Имя: {bot_info.full_name}")
-    logger.info(f"  • Username: @{bot_info.username}")
-    logger.info(f"  • ID: {bot_info.id}")
-    
+
+    # =========================================
+    # ПОДКЛЮЧЕНИЕ К TELEGRAM API
+    # =========================================
     try:
-        logger.info("🔄 Запуск polling...")
-        
+        bot_info = await bot.get_me()
+        logger.info(f"[OK] Успешное подключение к Telegram API")
+        logger.info(f"[BOT] Информация о боте:")
+        logger.info(f"  - Имя: {bot_info.full_name}")
+        logger.info(f"  - Username: @{bot_info.username}")
+        logger.info(f"  - ID: {bot_info.id}")
+    except Exception as e:
+        logger.error(f"[ERROR] Не удалось подключиться к Telegram API: {e}")
+        logger.warning("[WARN] Возможные причины:")
+        logger.warning("  - Нет доступа к api.telegram.org (проверьте интернет)")
+        logger.warning("  - Требуется прокси (если Telegram заблокирован)")
+        logger.warning("  - Неверный токен бота в .env")
+        logger.warning("[INFO] Для разработки можно запустить тесты без бота: pytest tests/ -v")
+        return  # Завершаем программу, если нет подключения
+    
+    # =========================================
+    # ЗАПУСК POLLING
+    # =========================================
+    try:
+        logger.info("[LOOP] Запуск polling...")
+
         await dp.start_polling(
             bot,
             allowed_updates=[
-                "message", 
-                "callback_query", 
+                "message",
+                "callback_query",
                 "chat_member",
                 "my_chat_member",
                 "forum_topic_created",
@@ -333,11 +349,18 @@ async def main():
         )
         
     except TelegramAPIError as e:
-        logger.error(f"❌ Ошибка Telegram API: {e}", exc_info=True)
+        logger.error(f"[ERROR] Ошибка Telegram API: {e}", exc_info=True)
     except asyncio.CancelledError:
-        logger.info("🔄 Polling отменён")
+        logger.info("[INFO] Polling отменён")
+    except OSError as e:
+        # Ошибки сети (DNS, подключение)
+        logger.error(f"[ERROR] Ошибка сети: {e}", exc_info=True)
+        logger.error("[INFO] Проверьте:")
+        logger.error("  - Подключение к интернету")
+        logger.error("  - Доступность api.telegram.org")
+        logger.error("  - Настройки прокси (если требуется)")
     except Exception as e:
-        logger.error(f"❌ Необработанная ошибка: {e}", exc_info=True)
+        logger.error(f"[ERROR] Необработанная ошибка: {e}", exc_info=True)
     finally:
         try:
             await bot.session.close()
@@ -349,7 +372,7 @@ async def main():
         except:
             pass
         
-        logger.info("🏁 Бот завершил работу")
+        logger.info("[END] Бот завершил работу")
 
 
 if __name__ == "__main__":
@@ -360,5 +383,5 @@ if __name__ == "__main__":
     except SystemExit:
         logger.info("👋 Системный выход")
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка верхнего уровня: {e}", exc_info=True)
+        logger.error(f"[ERROR] Критическая ошибка верхнего уровня: {e}", exc_info=True)
         sys.exit(1)

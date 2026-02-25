@@ -15,7 +15,6 @@ requests>=2.32.3
 
 # ✅ ДОБАВЛЕНО: aiohttp для асинхронных запросов к YouTube
 aiohttp>=3.10.5
-aiohttp[speedups]>=3.10.5  # включает brotli, aiodns, cchardet
 
 # ✅ ДОБАВЛЕНО: Brotli для распаковки сжатых страниц YouTube
 brotli>=1.1.0
@@ -54,5 +53,8 @@ redis>=5.0.8
 pytest==8.3.4
 pytest-asyncio==0.25.0
 pytest-cov==6.0.0
+pytest-mock
+aiosqlite
+python-dateutil
 
 python-dateutil>=2.9.0

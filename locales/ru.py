@@ -135,11 +135,14 @@ MESSAGES = {
         "language_menu": {
             "en": "English",
             "ru": "Русский",
+            "uk": "Українська",
+            "be": "Беларуская",
             "back": "← Назад",
+            "prompt": "Выберите язык:",
         },
         
-        "confirm_delete": "_✅ ДА, удалить всё",
-        "cancel_delete": "_❌ НЕТ, отмена",
+        "confirm_delete": "✅ ДА, удалить всё",
+        "cancel_delete": "❌ НЕТ, отмена",
         
         "sources_list": {
             "view_source": "📰 {name}",
@@ -376,10 +379,14 @@ MESSAGES = {
         
         "language_prompt": "<b>🌐 Выберите язык</b>\n\n"
                            "English\n"
-                           "Русский",
+                           "Русский\n"
+                           "Українська\n"
+                           "Беларуская",
         "language_changed": "✅ Язык изменён на {lang}",
         "language_en": "English",
         "language_ru": "Русский",
+        "language_uk": "Українська",
+        "language_be": "Беларуская",
         "language_back": "← Назад в настройки",
         
         "delete_warning": "<b>⚠️ ВНИМАНИЕ!</b>\n\n"

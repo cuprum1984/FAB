@@ -61,6 +61,11 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# Локальные БД (SQLite и другие)
+*.db
+local_dev.db
+test_*.db
+
 # Flask stuff:
 instance/
 .webassets-cache
@@ -149,11 +154,15 @@ debug_db.py
 redis_data.json
 *.md
 scripts/
-tests/
 План действий.md
 PROMPTS/
 run_cleanup.py
-
+tests/.pytest_cache/
+tests/__pycache__/
+.coverage
+.qwen/
+t_aiohttp.py
+t_dns/
 
 # Spyder project settings
 .spyderproject

@@ -143,12 +143,15 @@ MESSAGES = {
         "language_menu": {
             "en": "English",
             "ru": "Русский",
+            "uk": "Українська",
+            "be": "Беларуская",
             "back": "← Back",
+            "prompt": "Choose language:",
         },
         
         # Delete confirmation
-        "confirm_delete": "_✅ YES, delete everything",
-        "cancel_delete": "_❌ NO, cancel",
+        "confirm_delete": "✅ YES, delete everything",
+        "cancel_delete": "❌ NO, cancel",
         
         # Sources list
         "sources_list": {
@@ -395,10 +398,14 @@ MESSAGES = {
         # Language
         "language_prompt": "<b>🌐 Choose language</b>\n\n"
                            "English\n"
-                           "Русский",
+                           "Русский\n"
+                           "Українська\n"
+                           "Беларуская",
         "language_changed": "✅ Language changed to {lang}",
         "language_en": "English",
         "language_ru": "Русский",
+        "language_uk": "Українська",
+        "language_be": "Беларуская",
         "language_back": "← Back to settings",
         
         # Delete data

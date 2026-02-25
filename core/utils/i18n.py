@@ -1,5 +1,5 @@
 # core/utils/i18n.py
-from locales import en, ru
+from locales import en, ru, uk, be
 from typing import Dict, Any, Optional, List
 
 
@@ -7,11 +7,15 @@ class I18n:
     def __init__(self, language_code: str = 'en'):
         self.language_code = language_code
         self._translations = self._get_translations()
-    
+
     def _get_translations(self) -> Dict:
         """Get translations for current language (defaults to English)"""
         if self.language_code == 'ru':
             return ru.MESSAGES
+        elif self.language_code == 'uk':
+            return uk.MESSAGES
+        elif self.language_code == 'be':
+            return be.MESSAGES
         return en.MESSAGES
     
     def get(self, keys: List[str], **kwargs) -> str:

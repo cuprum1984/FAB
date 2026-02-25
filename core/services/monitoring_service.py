@@ -349,7 +349,7 @@ class MonitoringService:
                     await update_source_last_post_id(source, session, last_id_int)
                 except (ValueError, TypeError) as e:
                     logger.error(f"   ❌ Ошибка конвертации финального ID {last_successful_id}: {e}")
-            
+
             source.last_checked_timestamp = datetime.utcnow()
             await session.flush()
             await self._reset_source_error_stats(source.source_global_id)

@@ -1084,11 +1084,11 @@ async def update_source_last_post_id(
             source.last_successful_post_id = post_id
             source.last_successful_post_timestamp = datetime.utcnow()
             source.last_checked_timestamp = datetime.utcnow()
-            
+
             if update_cache and source.telegram_username:
                 await set_cached_last_post(source.telegram_username, post_id)
                 logger.debug(f"✅ Redis кеш обновлён для @{source.telegram_username}: {post_id}")
-            
+
             await session.commit()
             logger.debug(f"💾 БД обновлена для {source.source_global_id}: last_successful_post_id={post_id}")
         else:
