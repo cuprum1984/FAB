@@ -15,18 +15,28 @@ from core.models import Base
 
 logger = logging.getLogger(__name__)
 
+# Параметры для create_async_engine
+engine_kwargs = {
+    "echo": False,
+    "future": True,
+    "pool_pre_ping": True,  # проверяет соединение перед использованием
+}
+
+# Параметры пула только для PostgreSQL (SQLite не поддерживает)
+if not settings.database_url_async.startswith("sqlite"):
+    engine_kwargs.update({
+        "pool_size": 20,        # размер пула соединений
+        "max_overflow": 10,     # дополнительные соединения при пике
+        "pool_recycle": 3600,   # пересоздавать соединения каждый час
+        "connect_args": {
+            "command_timeout": 60,  # таймаут на выполнение команд
+            "timeout": 60,          # таймаут на подключение
+        }
+    })
+
 engine = create_async_engine(
     settings.database_url_async,
-    echo=False,
-    future=True,
-    pool_pre_ping=True,  # проверяет соединение перед использованием
-    pool_size=20,        # размер пула соединений
-    max_overflow=10,     # дополнительные соединения при пике
-    pool_recycle=3600,   # пересоздавать соединения каждый час
-    connect_args={
-        "command_timeout": 60,  # таймаут на выполнение команд
-        "timeout": 60,          # таймаут на подключение
-    }
+    **engine_kwargs
 )
 
 async_session = async_sessionmaker(

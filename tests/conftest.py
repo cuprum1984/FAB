@@ -2,6 +2,13 @@
 Конфигурация и фикстуры для тестов.
 Использует SQLite в памяти для изоляции тестов.
 """
+import os
+
+# 🔥 КРИТИЧНО: Переопределить ДО импортов из core/
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+os.environ["ENV"] = "test"
+os.environ["LOG_LEVEL"] = "WARNING"  # Тихие тесты
+
 import asyncio
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
