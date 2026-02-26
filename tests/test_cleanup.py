@@ -276,6 +276,61 @@ async def test_cleanup_removes_nonexistent_topic(db_session):
 
 
 @pytest.mark.asyncio
+async def test_cleanup_removes_nonexistent_topic_created_today(db_session):
+    """Очистка удаляет темы, помеченные как удалённые, даже если созданы сегодня и есть назначения"""
+    from core.models import SourceSubscription, TopicSourceAssignment
+
+    # 1️⃣ ПОДГОТОВКА — тема помечена как удалённая, создана сегодня + есть назначение
+    topic = GroupTopic(
+        topic_identifier="topic_today_001",
+        topic_name="Deleted Topic Today",
+        telegram_chat_id=-111111,
+        is_exists_in_tg=False,  # Помечена как удалённая
+        created_timestamp=datetime.now(timezone.utc)  # Создана только что
+    )
+    db_session.add(topic)
+
+    # Добавляем назначение (которое должно удалиться через CASCADE)
+    subscription = SourceSubscription(
+        source_global_id="test_source_123",
+        telegram_chat_id=-111111,
+        added_by_telegram_account_id=99999
+    )
+    db_session.add(subscription)
+    await db_session.commit()
+
+    assignment = TopicSourceAssignment(
+        topic_identifier="topic_today_001",
+        subscription_id=subscription.subscription_id
+    )
+    db_session.add(assignment)
+    await db_session.commit()
+
+    # 2️⃣ ДЕЙСТВИЕ
+    cleanup = CleanupService()
+    await cleanup._cleanup_orphan_topics(db_session)
+    await db_session.commit()
+
+    # 3️⃣ ПРОВЕРКА — тема удалена (даже если создана сегодня)
+    result = await db_session.execute(
+        select(GroupTopic).where(GroupTopic.topic_identifier == "topic_today_001")
+    )
+    deleted_topic = result.scalar()
+
+    assert deleted_topic is None, "Удалённая тема должна быть очищена, даже если создана сегодня"
+
+    # 4️⃣ ПРОВЕРКА — назначение тоже удалено (CASCADE)
+    result = await db_session.execute(
+        select(TopicSourceAssignment).where(
+            TopicSourceAssignment.topic_identifier == "topic_today_001"
+        )
+    )
+    deleted_assignment = result.scalar()
+
+    assert deleted_assignment is None, "Назначение должно быть удалено через CASCADE"
+
+
+@pytest.mark.asyncio
 async def test_cleanup_removes_old_topic(db_session):
     """Очистка удаляет темы без активности /plus >90 дней"""
 

@@ -14,22 +14,22 @@ from .base import logger, console_print
 
 async def cleanup_orphan_topics(session: AsyncSession):
     """
-    Удалить темы, помеченные как несуществующие в Telegram (is_exists_in_tg=False),
-    которые не используются в назначениях и созданы >0 дней назад.
+    Удалить темы, помеченные как несуществующие в Telegram (is_exists_in_tg=False).
+
+    ⚠️ ВАЖНО: Назначения (TopicSourceAssignment) не проверяются — они будут
+    удалены автоматически через CASCADE при удалении темы.
+    
+    Если тема удалена в Telegram (is_exists_in_tg=False), она бесполезна —
+    назначения на неё не могут работать, thread_id уже не существует.
     """
     msg = "🔍 Проверка удалённых тем..."
     logger.info(msg)
     console_print(msg)
 
     try:
-        cutoff_date = datetime.utcnow() - timedelta(days=0)
-
-        # Находим темы с is_exists_in_tg=False
+        # Находим темы с is_exists_in_tg=False (без ограничения по дате создания)
         stmt = select(GroupTopic).where(
-            and_(
-                GroupTopic.is_exists_in_tg == False,
-                GroupTopic.created_timestamp < cutoff_date
-            )
+            GroupTopic.is_exists_in_tg == False
         )
         result = await session.execute(stmt)
         dead_topics = result.scalars().all()
@@ -40,32 +40,22 @@ async def cleanup_orphan_topics(session: AsyncSession):
             console_print(msg)
             return
 
-        msg = f"📊 Найдено {len(dead_topics)} потенциально удалённых тем"
+        msg = f"📊 Найдено {len(dead_topics)} удалённых тем для очистки:"
         logger.info(msg)
         console_print(msg)
 
-        # Проверяем, используются ли темы в назначениях
-        topics_to_delete = []
+        # Удаляем все найденные темы (CASCADE удалит TopicSourceAssignment)
+        total_assignments_deleted = 0
         for topic in dead_topics:
+            # Подсчитываем назначения перед удалением
             assign_stmt = select(TopicSourceAssignment).where(
                 TopicSourceAssignment.topic_identifier == topic.topic_identifier
             )
             assign_result = await session.execute(assign_stmt)
-            if not assign_result.first():
-                topics_to_delete.append(topic)
+            assignments = assign_result.scalars().all()
+            assignments_count = len(assignments)
+            total_assignments_deleted += assignments_count
 
-        if not topics_to_delete:
-            msg = "✅ Нет неиспользуемых удалённых тем"
-            logger.info(msg)
-            console_print(msg)
-            return
-
-        msg = f"📊 Найдено {len(topics_to_delete)} удалённых тем для очистки:"
-        logger.info(msg)
-        console_print(msg)
-
-        # Удаляем темы
-        for topic in topics_to_delete:
             log_msg = f"   🗑️ Удаляется тема:"
             logger.info(log_msg)
             console_print(log_msg)
@@ -75,10 +65,12 @@ async def cleanup_orphan_topics(session: AsyncSession):
             logger.info(f"      • Группа: {topic.telegram_chat_id}")
             logger.info(f"      • Создана: {topic.created_timestamp}")
             logger.info(f"      • Помечена как удалённая: {topic.is_exists_in_tg}")
+            logger.info(f"      • Назначений удалено: {assignments_count}")
+            console_print(f"      • Назначений удалено: {assignments_count}")
 
             await session.delete(topic)
 
-        msg = f"✅ Очистка тем завершена: удалено {len(topics_to_delete)}"
+        msg = f"✅ Очистка тем завершена: удалено {len(dead_topics)} тем, {total_assignments_deleted} назначений"
         logger.info(msg)
         console_print(msg)
 
@@ -105,7 +97,7 @@ async def cleanup_old_topics(session: AsyncSession):
     console_print(msg)
 
     try:
-        cutoff_date = datetime.utcnow() - timedelta(days=90)
+        cutoff_date = datetime.utcnow() - timedelta(days=0)
 
         # Находим старые темы
         stmt = select(GroupTopic).where(

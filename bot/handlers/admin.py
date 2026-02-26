@@ -226,6 +226,12 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)  # ✅ Naive datetime для БД
 
+    # ✅ ДОБАВЛЕНО: обновляем название группы, если оно изменилось
+    chat_title = message.chat.title
+    if existing_group and chat_title and existing_group.telegram_chat_title != chat_title:
+        existing_group.telegram_chat_title = chat_title
+        logger.info(f"📝 Обновление названия группы: '{existing_group.telegram_chat_title or 'N/A'}' → '{chat_title}'")
+
     try:
         if existing_group:
             # Обновляем существующую группу
@@ -237,12 +243,12 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
 
                 # ✅ ДОБАВЛЕНО: обновляем last_seen_at
                 existing_group.last_seen_at = now
-                
+
                 # ✅ ДОБАВЛЕНО: устанавливаем creator_id, если его нет
                 if not existing_group.creator_id:
                     existing_group.creator_id = user_id
                     logger.info(f"👤 Установлен creator_id={user_id} для группы {chat_id}")
-                
+
                 await session.commit()
                 
                 # ✅ В ГРУППЕ: только текст, БЕЗ клавиатуры
@@ -429,13 +435,19 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
     group_stmt = select(ManagedGroup).where(ManagedGroup.telegram_chat_id == chat_id)
     group_result = await session.execute(group_stmt)
     group = group_result.scalar_one_or_none()
-    
+
     if not group or not group.is_bot_active_in_group:
         await message.answer(
             get_text(['admin', 'plus_group_not_active']),
             parse_mode="HTML"
         )
         return
+
+    # ✅ ДОБАВЛЕНО: обновляем название группы, если оно изменилось
+    chat_title = message.chat.title
+    if group and chat_title and group.telegram_chat_title != chat_title:
+        group.telegram_chat_title = chat_title
+        logger.info(f"📝 Обновление названия группы: '{group.telegram_chat_title or 'N/A'}' → '{chat_title}'")
     
     # ===== 3. ПРОВЕРЯЕМ ПРАВА ПОЛЬЗОВАТЕЛЯ =====
     try:
@@ -542,44 +554,30 @@ async def back_to_main(message: Message, state: FSMContext, get_text: callable):
 
 
 # ========== ОБРАБОТКА ПЕРЕИМЕНОВАНИЯ ГРУППЫ ==========
+# ⚠️ Telegram не отправляет уведомления о переименовании группы напрямую
+# Решение: обновлять название при каждом взаимодействии с группой
 
-@router.message(F.chat.type.in_({"group", "supergroup"}))
-async def on_group_title_change(message: Message, session: AsyncSession):
+async def update_group_title_if_changed(chat_id: int, chat_title: str, session: AsyncSession):
     """
-    Отслеживание переименования группы.
-    Работает через сравнение текущего названия с БД.
+    Обновить название группы в БД, если оно изменилось.
+    Вызывается из других хендлеров при работе с группой.
     """
     from core.models import ManagedGroup
     from sqlalchemy import select
     
-    chat_id = message.chat.id
-    chat_title = message.chat.title
-    
-    # Пропускаем обычные сообщения
-    if not message.text and not message.sticker:
-        return
-    
     if not chat_title:
-        logger.debug(f"⚠️ Получено None вместо названия группы {chat_id}, пропускаю")
         return
     
     try:
-        # Проверяем, существует ли группа в БД
         stmt = select(ManagedGroup).where(ManagedGroup.telegram_chat_id == chat_id)
         result = await session.execute(stmt)
         group = result.scalar_one_or_none()
         
         if group and group.telegram_chat_title != chat_title:
-            # Обновляем название группы
             old_title = group.telegram_chat_title
             group.telegram_chat_title = chat_title
             await session.commit()
             logger.info(f"✅ Название группы обновлено: '{old_title}' → '{chat_title}'")
-        elif group:
-            logger.debug(f"ℹ️ Название группы '{chat_title}' не изменилось")
-        else:
-            logger.debug(f"ℹ️ Группа '{chat_title}' не найдена в БД, пропускаю")
-            
     except Exception as e:
         logger.error(f"❌ Ошибка при обновлении названия группы: {e}", exc_info=True)
         await session.rollback()

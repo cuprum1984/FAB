@@ -45,6 +45,7 @@ from bot.handlers import (
     sources,
     admin,
     topics_auto,
+    settings_handler,
 )
 
 # Настройка логирования
@@ -289,7 +290,7 @@ async def main():
     )
     
     dp = Dispatcher(storage=storage)
-    
+
     # 👇 ВАЖНО: ПРАВИЛЬНЫЙ ПОРЯДОК MIDDLEWARE 👇
     dp.message.middleware(DBSessionMiddleware())      # 1. Сначала БД
     dp.callback_query.middleware(DBSessionMiddleware())  # 1. Для callback тоже БД
@@ -297,14 +298,16 @@ async def main():
     dp.message.middleware(I18nMiddleware())           # 2. Потом i18n для сообщений
     dp.callback_query.middleware(I18nMiddleware())    # 3. И для callback (ОДИН РАЗ!)
     logger.info("[OK] Middleware для БД и i18n подключены")
-    
+
     # Подключаем роутеры
-    dp.include_router(common.router)      # сначала общие     # потом источники
-    dp.include_router(admin.router)     # админка
-    dp.include_router(sources.router)  
-    dp.include_router(topics_auto.router) # авто-сохранение тем
-    dp.include_router(settings_handler.router) # настройки
-    
+    dp.include_router(common.router)
+    dp.include_router(sources.router)
+    dp.include_router(admin.router)
+    dp.include_router(topics_auto.forum_router)  # Служебные события тем
+    dp.include_router(topics_auto.router)  # Обычные сообщения
+    dp.include_router(settings_handler.router)  # Настройки
+    logger.info("[OK] Роутеры подключены")
+
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
 

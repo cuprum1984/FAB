@@ -163,7 +163,7 @@ tests/__pycache__/
 .qwen/
 t_aiohttp.py
 t_dns/
-
+.vscode
 # Spyder project settings
 .spyderproject
 .spyproject
