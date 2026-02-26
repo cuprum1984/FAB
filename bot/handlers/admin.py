@@ -535,7 +535,51 @@ async def back_to_main(message: Message, state: FSMContext, get_text: callable):
     """Вернуться в главное меню."""
     await message.answer(
         get_text(['common', 'menu']),
-        parse_mode="HTML", 
+        parse_mode="HTML",
         reply_markup=get_main_menu(get_text)
     )
     await state.clear()
+
+
+# ========== ОБРАБОТКА ПЕРЕИМЕНОВАНИЯ ГРУППЫ ==========
+
+@router.message(F.chat.type.in_({"group", "supergroup"}))
+async def on_group_title_change(message: Message, session: AsyncSession):
+    """
+    Отслеживание переименования группы.
+    Работает через сравнение текущего названия с БД.
+    """
+    from core.models import ManagedGroup
+    from sqlalchemy import select
+    
+    chat_id = message.chat.id
+    chat_title = message.chat.title
+    
+    # Пропускаем обычные сообщения
+    if not message.text and not message.sticker:
+        return
+    
+    if not chat_title:
+        logger.debug(f"⚠️ Получено None вместо названия группы {chat_id}, пропускаю")
+        return
+    
+    try:
+        # Проверяем, существует ли группа в БД
+        stmt = select(ManagedGroup).where(ManagedGroup.telegram_chat_id == chat_id)
+        result = await session.execute(stmt)
+        group = result.scalar_one_or_none()
+        
+        if group and group.telegram_chat_title != chat_title:
+            # Обновляем название группы
+            old_title = group.telegram_chat_title
+            group.telegram_chat_title = chat_title
+            await session.commit()
+            logger.info(f"✅ Название группы обновлено: '{old_title}' → '{chat_title}'")
+        elif group:
+            logger.debug(f"ℹ️ Название группы '{chat_title}' не изменилось")
+        else:
+            logger.debug(f"ℹ️ Группа '{chat_title}' не найдена в БД, пропускаю")
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка при обновлении названия группы: {e}", exc_info=True)
+        await session.rollback()

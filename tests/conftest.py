@@ -68,3 +68,21 @@ def empty_telegram_html():
     """Загружает пустую HTML-фикстуру"""
     with open("tests/fixtures/telegram_empty.html", "r", encoding="utf-8") as f:
         return f.read()
+
+
+@pytest.fixture
+def mock_bot():
+    """
+    Mock бота для тестов MonitoringService.
+    Возвращает AsyncMock с заглушками всех методов.
+    """
+    from unittest.mock import AsyncMock
+    
+    bot = AsyncMock()
+    bot.send_message = AsyncMock()
+    bot.send_photo = AsyncMock()
+    bot.send_document = AsyncMock()
+    bot.get_chat = AsyncMock()
+    bot.edit_message_text = AsyncMock()
+    bot.delete_message = AsyncMock()
+    return bot
