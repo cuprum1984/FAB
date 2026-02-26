@@ -10,7 +10,7 @@
 """
 import html
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -224,17 +224,17 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
     result = await session.execute(stmt)
     existing_group = result.scalar_one_or_none()
 
-    now = datetime.utcnow()  # ✅ Текущее время для last_seen_at
-    
+    now = datetime.now(timezone.utc).replace(tzinfo=None)  # ✅ Naive datetime для БД
+
     try:
         if existing_group:
             # Обновляем существующую группу
             was_inactive = not existing_group.is_bot_active_in_group
-            
+
             if not existing_group.is_bot_active_in_group:
                 existing_group.is_bot_active_in_group = True
                 existing_group.bot_role_in_group = bot_member.status
-                
+
                 # ✅ ДОБАВЛЕНО: обновляем last_seen_at
                 existing_group.last_seen_at = now
                 
@@ -467,7 +467,7 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
     # ===== 6. ЕСЛИ ТЕМА УЖЕ ЕСТЬ - ОБНОВЛЯЕМ ИНФОРМАЦИЮ =====
     if existing_topic:
         # ✅ Обновляем last_seen_at и флаг существования
-        existing_topic.last_seen_at = datetime.utcnow()
+        existing_topic.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
         existing_topic.is_exists_in_tg = True
         await session.commit()
         

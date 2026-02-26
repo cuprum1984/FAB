@@ -3,7 +3,7 @@
 Версия: 1.0 (14 февраля 2026)
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,11 +19,11 @@ async def cleanup_expired_cache():
     Запускать раз в день.
     """
     logger.info("🧹 Запуск ежедневной чистки кеша...")
-    
+
     try:
         async with async_session() as session:
             # 1. Удаляем из общего кеша
-            expired_date = datetime.utcnow() - timedelta(days=30)
+            expired_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
             stmt = delete(CachedMedia).where(
                 CachedMedia.last_used < expired_date
             )

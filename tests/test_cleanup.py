@@ -3,7 +3,7 @@
 Проверяют корректность удаления пользователей, групп, источников и тем.
 """
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from core.models import TelegramAccount, ManagedGroup, ContentSource, GroupTopic
 from core.services.cleanup_service import CleanupService
@@ -18,7 +18,7 @@ async def test_gdpr_removes_blocked_user_old(db_session):
     """GDPR удаляет заблокированных пользователей >30 дней"""
 
     # 1️⃣ ПОДГОТОВКА — пользователь заблокирован 31 день назад
-    old_date = datetime.utcnow() - timedelta(days=31)
+    old_date = datetime.now(timezone.utc) - timedelta(days=31)
     user = TelegramAccount(
         telegram_account_id=99999,
         telegram_username="test_user",
@@ -48,7 +48,7 @@ async def test_gdpr_keeps_active_user(db_session):
     """GDPR НЕ удаляет активных пользователей (<30 дней)"""
 
     # 1️⃣ ПОДГОТОВКА — пользователь активен (вчера)
-    recent_date = datetime.utcnow() - timedelta(days=1)
+    recent_date = datetime.now(timezone.utc) - timedelta(days=1)
     user = TelegramAccount(
         telegram_account_id=88888,
         telegram_username="active_user",
@@ -78,7 +78,7 @@ async def test_gdpr_keeps_unblocked_user(db_session):
     """GDPR НЕ удаляет незаблокированных пользователей"""
 
     # 1️⃣ ПОДГОТОВКА — пользователь не заблокирован, но старая активность
-    old_date = datetime.utcnow() - timedelta(days=60)
+    old_date = datetime.now(timezone.utc) - timedelta(days=60)
     user = TelegramAccount(
         telegram_account_id=77777,
         telegram_username="unblocked_user",
@@ -112,7 +112,7 @@ async def test_cleanup_removes_dead_group(db_session):
     """Очистка удаляет группы, где бот неактивен >90 дней"""
 
     # 1️⃣ ПОДГОТОВКА — группа неактивна 91 день
-    old_date = datetime.utcnow() - timedelta(days=91)
+    old_date = datetime.now(timezone.utc) - timedelta(days=91)
     group = ManagedGroup(
         telegram_chat_id=-111111,
         telegram_chat_title="Dead Group",
@@ -120,7 +120,7 @@ async def test_cleanup_removes_dead_group(db_session):
         bot_role_in_group="member",  # Обязательное поле
         is_bot_active_in_group=False,
         last_seen_at=old_date,
-        bot_added_timestamp=datetime.utcnow() - timedelta(days=100)
+        bot_added_timestamp=datetime.now(timezone.utc) - timedelta(days=100)
     )
     db_session.add(group)
     await db_session.commit()
@@ -144,7 +144,7 @@ async def test_cleanup_keeps_active_group(db_session):
     """Очистка НЕ удаляет активные группы"""
 
     # 1️⃣ ПОДГОТОВКА — группа активна
-    recent_date = datetime.utcnow() - timedelta(days=10)
+    recent_date = datetime.now(timezone.utc) - timedelta(days=10)
     group = ManagedGroup(
         telegram_chat_id=-222222,
         telegram_chat_title="Active Group",
@@ -152,7 +152,7 @@ async def test_cleanup_keeps_active_group(db_session):
         bot_role_in_group="admin",  # Обязательное поле
         is_bot_active_in_group=True,  # Активна
         last_seen_at=recent_date,
-        bot_added_timestamp=datetime.utcnow() - timedelta(days=20)
+        bot_added_timestamp=datetime.now(timezone.utc) - timedelta(days=20)
     )
     db_session.add(group)
     await db_session.commit()
@@ -184,8 +184,8 @@ async def test_cleanup_removes_orphan_source(db_session):
         source_global_id="orphan_source_123",
         source_type="telegram",
         telegram_username="orphan_channel",
-        created_timestamp=datetime.utcnow() - timedelta(days=1),
-        last_checked_timestamp=datetime.utcnow() - timedelta(days=1)
+        created_timestamp=datetime.now(timezone.utc) - timedelta(days=1),
+        last_checked_timestamp=datetime.now(timezone.utc) - timedelta(days=1)
     )
     db_session.add(source)
     await db_session.commit()
@@ -215,8 +215,8 @@ async def test_cleanup_keeps_source_with_subscriptions(db_session):
         source_global_id="active_source_456",
         source_type="telegram",
         telegram_username="active_channel",
-        created_timestamp=datetime.utcnow() - timedelta(days=1),
-        last_checked_timestamp=datetime.utcnow() - timedelta(days=1)
+        created_timestamp=datetime.now(timezone.utc) - timedelta(days=1),
+        last_checked_timestamp=datetime.now(timezone.utc) - timedelta(days=1)
     )
     db_session.add(source)
     
@@ -256,7 +256,7 @@ async def test_cleanup_removes_nonexistent_topic(db_session):
         topic_name="Deleted Topic",
         telegram_chat_id=-111111,
         is_exists_in_tg=False,  # Помечена как удалённая
-        created_timestamp=datetime.utcnow() - timedelta(days=1)
+        created_timestamp=datetime.now(timezone.utc) - timedelta(days=1)
     )
     db_session.add(topic)
     await db_session.commit()
@@ -280,14 +280,14 @@ async def test_cleanup_removes_old_topic(db_session):
     """Очистка удаляет темы без активности /plus >90 дней"""
 
     # 1️⃣ ПОДГОТОВКА — тема без активности 91 день
-    old_date = datetime.utcnow() - timedelta(days=91)
+    old_date = datetime.now(timezone.utc) - timedelta(days=91)
     topic = GroupTopic(
         topic_identifier="old_topic_777",
         topic_name="Old Topic",
         telegram_chat_id=-222222,
         is_exists_in_tg=True,
         last_seen_at=old_date,  # Последнее посещение 91 день назад
-        created_timestamp=datetime.utcnow() - timedelta(days=100)
+        created_timestamp=datetime.now(timezone.utc) - timedelta(days=100)
     )
     db_session.add(topic)
     await db_session.commit()
@@ -311,14 +311,14 @@ async def test_cleanup_keeps_general_topic(db_session):
     """Очистка НЕ удаляет General темы"""
 
     # 1️⃣ ПОДГОТОВКА — General тема без активности
-    old_date = datetime.utcnow() - timedelta(days=100)
+    old_date = datetime.now(timezone.utc) - timedelta(days=100)
     topic = GroupTopic(
         topic_identifier="general_topic_111",
         topic_name="General",  # General тема
         telegram_chat_id=-333333,
         is_exists_in_tg=True,
         last_seen_at=old_date,
-        created_timestamp=datetime.utcnow() - timedelta(days=150)
+        created_timestamp=datetime.now(timezone.utc) - timedelta(days=150)
     )
     db_session.add(topic)
     await db_session.commit()

@@ -9,7 +9,7 @@
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional, Tuple
 from sqlalchemy import select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1082,8 +1082,8 @@ async def update_source_last_post_id(
         # Только если новый ID больше текущего!
         if post_id > (source.last_successful_post_id or 0):
             source.last_successful_post_id = post_id
-            source.last_successful_post_timestamp = datetime.utcnow()
-            source.last_checked_timestamp = datetime.utcnow()
+            source.last_successful_post_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+            source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
 
             if update_cache and source.telegram_username:
                 await set_cached_last_post(source.telegram_username, post_id)
@@ -1093,7 +1093,7 @@ async def update_source_last_post_id(
             logger.debug(f"💾 БД обновлена для {source.source_global_id}: last_successful_post_id={post_id}")
         else:
             # Просто обновляем время проверки
-            source.last_checked_timestamp = datetime.utcnow()
+            source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
             await session.commit()
             logger.debug(f"⏱️ Обновлено время проверки для {source.source_global_id}")
             

@@ -13,7 +13,7 @@
 import asyncio
 import logging
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,10 +82,10 @@ class MonitoringService:
     
     async def _smart_sleep(self, base_interval_minutes: int):
         """Умное ожидание с учётом часов пик"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         hour = now.hour
         is_peak_hour = 13 <= hour <= 17
-        
+
         interval = base_interval_minutes * 1 if is_peak_hour else base_interval_minutes
         logger.info(f"⏳ Следующая проверка через {interval} минут...")
         
@@ -208,18 +208,18 @@ class MonitoringService:
             return False
         
         if consecutive_errors >= 3:
-            if last_check and (datetime.utcnow() - last_check).total_seconds() < 3600:
+            if last_check and (datetime.now(timezone.utc).replace(tzinfo=None) - last_check).total_seconds() < 3600:
                 logger.debug(f"⏸️ Пропускаю {source.source_global_id} (3+ ошибок подряд)")
                 return False
-        
+
         # Определяем интервал в зависимости от типа источника
         if source.source_type == 'youtube':
             interval = 1800  # 30 минут для YouTube
         else:
             interval = 300   # 5 минут для Telegram
-        
+
         if source.last_checked_timestamp:
-            seconds_since = (datetime.utcnow() - source.last_checked_timestamp).total_seconds()
+            seconds_since = (datetime.now(timezone.utc).replace(tzinfo=None) - source.last_checked_timestamp).total_seconds()
             if seconds_since < interval:
                 logger.debug(f"⏸️ {source.source_global_id}: ещё рано (прошло {seconds_since:.0f}с, нужно {interval}с)")
                 return False
@@ -229,7 +229,7 @@ class MonitoringService:
     async def _update_source_error_stats(self, source_global_id: str):
         stats = self.source_stats.get(source_global_id, {})
         stats['consecutive_errors'] = stats.get('consecutive_errors', 0) + 1
-        stats['last_check'] = datetime.utcnow()
+        stats['last_check'] = datetime.now(timezone.utc).replace(tzinfo=None)
         self.source_stats[source_global_id] = stats
     
     async def _reset_source_error_stats(self, source_global_id: str):
@@ -271,7 +271,7 @@ class MonitoringService:
             
             if source.last_successful_post_id is None:
                 logger.info(f"🆕 Первый запуск для {source_name}, новых постов нет (уже отправили при добавлении)")
-                source.last_checked_timestamp = datetime.utcnow()
+                source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
                 await session.flush()
                 await self._reset_source_error_stats(source.source_global_id)
                 return
@@ -282,10 +282,10 @@ class MonitoringService:
             logger.info(f"   🔍 last_post_id для проверки = {last_post_id}")
             
             assignments = await self._get_source_assignments(source.source_global_id, session)
-            
+
             if not assignments:
                 logger.debug(f"📭 Нет активных назначений для источника {source_name}")
-                source.last_checked_timestamp = datetime.utcnow()
+                source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
                 await session.flush()
                 await self._reset_source_error_stats(source.source_global_id)
                 return
@@ -302,7 +302,7 @@ class MonitoringService:
             
             if not new_posts:
                 logger.debug(f"📭 Нет новых постов в {source_name}")
-                source.last_checked_timestamp = datetime.utcnow()
+                source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
                 await session.flush()
                 await self._reset_source_error_stats(source.source_global_id)
                 return
@@ -350,7 +350,7 @@ class MonitoringService:
                 except (ValueError, TypeError) as e:
                     logger.error(f"   ❌ Ошибка конвертации финального ID {last_successful_id}: {e}")
 
-            source.last_checked_timestamp = datetime.utcnow()
+            source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
             await session.flush()
             await self._reset_source_error_stats(source.source_global_id)
             
@@ -618,10 +618,10 @@ class MonitoringService:
                             stmt = select(ManagedGroup).where(ManagedGroup.telegram_chat_id == chat_id)
                             result = await cleanup_session.execute(stmt)
                             group = result.scalar_one_or_none()
-                            
+
                             if group:
                                 group.is_bot_active_in_group = False
-                                group.last_seen_at = datetime.utcnow()
+                                group.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
                                 await cleanup_session.commit()
                                 logger.info(f"✅ Группа {chat_id} помечена как неактивная")
                     except Exception as db_error:

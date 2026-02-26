@@ -11,7 +11,7 @@
 """
 import logging
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, delete, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,7 +77,7 @@ class CleanupService:
         console_print(msg)
         
         try:
-            cutoff_date = datetime.utcnow() - timedelta(days=30)
+            cutoff_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
 
             # Находим пользователей для удаления
             stmt = select(TelegramAccount).where(
@@ -140,7 +140,7 @@ class CleanupService:
         console_print(msg)
         
         try:
-            cutoff_date = datetime.utcnow() - timedelta(days=90)
+            cutoff_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=90)
 
             # Находим группы для удаления
             stmt = select(ManagedGroup).where(
@@ -211,7 +211,7 @@ class CleanupService:
             all_sources = result.scalars().all()
             
             orphan_sources = []
-            cutoff_date = datetime.utcnow() - timedelta(days=0)  # Сразу удаляем
+            cutoff_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=0)  # Сразу удаляем
 
             for source in all_sources:
                 if source.source_global_id not in subscribed_ids:
@@ -270,7 +270,7 @@ class CleanupService:
         console_print(msg)
         
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
 
             # Очищаем основной кеш
             stmt_main = select(CachedMedia).where(CachedMedia.expires_at < now)
@@ -340,7 +340,7 @@ class CleanupService:
         console_print(msg)
 
         try:
-            cutoff_date = datetime.utcnow() - timedelta(days=0)
+            cutoff_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=0)
 
             # Находим темы с is_exists_in_tg=False
             stmt = select(GroupTopic).where(
@@ -422,7 +422,7 @@ class CleanupService:
         console_print(msg)
 
         try:
-            cutoff_date = datetime.utcnow() - timedelta(days=90)
+            cutoff_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=90)
 
             # Находим старые темы
             stmt = select(GroupTopic).where(

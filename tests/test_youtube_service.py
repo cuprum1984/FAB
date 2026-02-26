@@ -5,7 +5,7 @@
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.services.youtube_simple_service import YouTubeSimpleMonitoringService
@@ -39,7 +39,7 @@ def mock_source():
     source.source_global_id = 'yt_test_channel'
     source.last_video_id = 'old_video_123'
     source.last_successful_post_id = 123456789012345
-    source.last_checked_timestamp = datetime.utcnow()
+    source.last_checked_timestamp = datetime.now(timezone.utc)
     return source
 
 

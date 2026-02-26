@@ -13,7 +13,7 @@ import re
 import html
 import logging
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -357,9 +357,9 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
                 channel_title=source_title,
                 feed_url=None
             )
-            
+
             source.last_successful_post_id = first_post_id
-            source.last_successful_post_timestamp = datetime.utcnow()
+            source.last_successful_post_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
 
         elif source_type == "youtube":
             source, created = await get_or_create_content_source(
@@ -370,19 +370,19 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
                 youtube_username=username,
                 channel_title=source_title
             )
-            
+
             # Сохраняем новые поля для YouTube HTML парсера
             source.youtube_username = username
             #source.channel_language = channel_language
             source.last_video_id = last_video_id
             #source.last_video_timestamp = last_video_timestamp
-            
+
             # Числовой хеш для обратной совместимости
             video_id_num = int(hashlib.md5(last_video_id.encode()).hexdigest()[:15], 16) % (10**15)
             source.last_successful_post_id = video_id_num
-            source.last_successful_post_timestamp = datetime.utcnow()
+            source.last_successful_post_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
 
-        source.last_checked_timestamp = datetime.utcnow()
+        source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
         
         # 🔥 КОММИТИМ В БД
         await session.commit()
@@ -422,7 +422,8 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
                 first_post_id=first_post_id,
                 source_title=source_title,
                 source_username=username,
-                source_type="telegram"
+                source_type="telegram",
+                source_created_now=created  # ✅ Флаг: источник создан в этом сеансе
             )
         elif source_type == "youtube":
             await state.update_data(
@@ -433,7 +434,8 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
                 source_title=source_title,
                 channel_id=channel_id,
                 youtube_username=username,
-                source_type="youtube"
+                source_type="youtube",
+                source_created_now=created  # ✅ Флаг: источник создан в этом сеансе
             )
         
         # ✅ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ С КЛАВИАТУРОЙ
@@ -466,9 +468,29 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
 
 
 @router.callback_query(AddChannel.confirm_channel, F.data == "cancel_add_channel")
-async def cancel_add_channel(callback: CallbackQuery, state: FSMContext, get_text: callable):
-    """Отменить добавление канала."""
+async def cancel_add_channel(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Отменить добавление канала и удалить созданный источник (если он новый)."""
+    from core.models import ContentSource
+    from sqlalchemy import delete
+    
     await callback.answer()
+    
+    # Получаем данные из состояния
+    data = await state.get_data()
+    source_global_id = data.get("source_global_id")
+    source_created_now = data.get("source_created_now", False)
+    
+    # Если источник был создан в этом сеансе — удаляем его
+    if source_created_now and source_global_id:
+        try:
+            stmt = delete(ContentSource).where(ContentSource.source_global_id == source_global_id)
+            await session.execute(stmt)
+            await session.commit()
+            logger.info(f"🗑️ Удалён источник {source_global_id} после отмены пользователем")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"❌ Ошибка удаления источника {source_global_id}: {e}")
+    
     await callback.message.edit_text(
         get_text(['sources', 'add_cancelled']),
         parse_mode="HTML"
@@ -748,12 +770,27 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
     Обработать выбор группы/темы.
     ⚠️ ТЕПЕРЬ РАБОТАЕТ ТОЛЬКО ДЛЯ ОТМЕНЫ (текстовое сообщение)
     """
+    from core.models import ContentSource
+    from sqlalchemy import delete
     
     data = await state.get_data()
     source_type = data.get("source_type", "telegram")
-    
+    source_global_id = data.get("source_global_id")
+    source_created_now = data.get("source_created_now", False)
+
     # Проверяем, не является ли это сообщение об ошибке или другое
     if message.text and message.text.strip() == "❌ Отмена":
+        # Если источник был создан в этом сеансе — удаляем его
+        if source_created_now and source_global_id:
+            try:
+                stmt = delete(ContentSource).where(ContentSource.source_global_id == source_global_id)
+                await session.execute(stmt)
+                await session.commit()
+                logger.info(f"🗑️ Удалён источник {source_global_id} после отмены пользователем")
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"❌ Ошибка удаления источника {source_global_id}: {e}")
+        
         await message.answer(
             get_text(['sources', 'add_cancelled']),
             reply_markup=get_main_menu(get_text)
@@ -765,7 +802,7 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
         except:
             pass
         return
-    
+
     # Игнорируем другие сообщения
     await message.answer(
         get_text(['sources', 'destination_use_inline']),

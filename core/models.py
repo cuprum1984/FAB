@@ -9,6 +9,12 @@
 - Удалены поля last_video_timestamp, channel_language, title, description из ContentSource
 - Добавлены новые индексы
 - ✅ Добавлено поле channel_title в ContentSource для отображения названий каналов
+
+Примечание по datetime (февраль 2026):
+- Все поля datetime используют `func.now()` для server_default/onupdate (SQL уровень) ✅
+- В сервисах используется `datetime.now(timezone.utc).replace(tzinfo=None)` для записи в БД
+- Причина: PostgreSQL TIMESTAMP WITHOUT TIME ZONE требует naive datetime
+- См. core/services/* для примеров корректного использования
 """
 
 from datetime import datetime
