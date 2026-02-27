@@ -201,7 +201,7 @@ class TelegramMonitor:
                     logger.debug(f"❌ file_id НЕ НАЙДЕН в кеше")
 
         post_sender = PostSender(self.bot)
-        
+
         for assignment in assignments:
             try:
                 if file_id:
@@ -209,10 +209,16 @@ class TelegramMonitor:
                         post=post,
                         file_id=file_id,
                         assignment=assignment,
-                        source=source
+                        source=source,
+                        session=session
                     )
                 else:
-                    await post_sender.send_text_to_assignment(post, assignment, source)
+                    await post_sender.send_text_to_assignment(
+                        post=post,
+                        assignment=assignment,
+                        source=source,
+                        session=session
+                    )
 
                 await asyncio.sleep(0.3)
             except Exception as e:

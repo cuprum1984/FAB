@@ -81,7 +81,21 @@ class FileFakeRedis:
             del self.data[key]
             self._save()
             logger.debug(f"🗑️ DELETE {key}")
-    
+
+    async def flushall(self):
+        """Очистить все данные"""
+        self.data.clear()
+        self._save()
+        logger.info("🧹 FLUSHALL - все данные удалены")
+
+    async def keys(self, pattern: str = "*"):
+        """Получить все ключи по паттерну"""
+        if pattern == "*":
+            return list(self.data.keys())
+        # Простая реализация для паттернов
+        import fnmatch
+        return [k for k in self.data.keys() if fnmatch.fnmatch(k, pattern)]
+
     async def ping(self) -> bool:
         """Проверить соединение"""
         return True

@@ -670,19 +670,19 @@ async def finalize_destination_choice(
             first_post = data.get("first_post")
             first_post_id = data.get("first_post_id")
             username = data.get("source_username")
-            
+
             if first_post:
                 try:
                     source_name = f"@{username}"
                     text = first_post.get('text', '').strip()
                     if not text:
                         text = "📎 [Медиа-сообщение]"
-                    
+
                     message_text = f"<b>{source_name}</b>\n\n{text}"
-                    
+
                     if first_post.get('post_id'):
                         message_text += f"\n\n<a href='https://t.me/{username}/{first_post_id}'>🔗 Оригинал</a>"
-                    
+
                     await callback.message.bot.send_message(
                         chat_id=chat_id,
                         message_thread_id=chosen.get('thread_id'),
@@ -691,25 +691,34 @@ async def finalize_destination_choice(
                         disable_web_page_preview=False
                     )
                     logger.info(f"✅ Отправлен первый пост ID: {first_post_id}")
-                
+
+                    # ✅ ОБНОВЛЯЕМ last_seen_at ПОСЛЕ УСПЕШНОЙ ОТПРАВКИ
+                    topic_stmt = select(GroupTopic).where(GroupTopic.topic_identifier == topic_identifier)
+                    topic_result = await session.execute(topic_stmt)
+                    topic = topic_result.scalar_one_or_none()
+                    if topic:
+                        topic.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                        await session.commit()
+                        logger.debug(f"✅ last_seen_at обновлён для темы {topic.topic_name}")
+
                 except Exception as send_error:
                     logger.error(f"❌ Ошибка отправки первого поста: {send_error}")
-        
+
         elif source_type == "youtube":
             first_video_id = data.get("first_video_id")
             username = data.get("youtube_username") or data.get("channel_id", "")[:8]
             channel_title = data.get("source_title")
-            
+
             if first_video_id:
                 try:
                     if channel_title:
                         source_name = f"{channel_title} | @{username}"
                     else:
                         source_name = f"YouTube канал @{username}"
-                    
+
                     video_url = f"https://youtu.be/{first_video_id}"
                     message_text = f"{video_url}\n\n<b>{source_name}</b>"
-                    
+
                     await callback.message.bot.send_message(
                         chat_id=chat_id,
                         message_thread_id=chosen.get('thread_id'),
@@ -717,9 +726,18 @@ async def finalize_destination_choice(
                         parse_mode="HTML",
                         disable_web_page_preview=False
                     )
-                    
+
                     logger.info(f"✅ Отправлено первое видео: {first_video_id}")
-                
+
+                    # ✅ ОБНОВЛЯЕМ last_seen_at ПОСЛЕ УСПЕШНОЙ ОТПРАВКИ
+                    topic_stmt = select(GroupTopic).where(GroupTopic.topic_identifier == topic_identifier)
+                    topic_result = await session.execute(topic_stmt)
+                    topic = topic_result.scalar_one_or_none()
+                    if topic:
+                        topic.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                        await session.commit()
+                        logger.debug(f"✅ last_seen_at обновлён для темы {topic.topic_name}")
+
                 except Exception as send_error:
                     logger.error(f"❌ Ошибка отправки первого видео: {send_error}")
         

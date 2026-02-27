@@ -121,20 +121,20 @@ class YouTubeSimpleMonitoringService:
     
     async def _send_video(self, video_id: str, source: ContentSource, assignments: List[TopicSourceAssignment], session: AsyncSession):
         """Отправить видео во все назначения"""
-        
+
         video_url = f"https://youtu.be/{video_id}"
         source_name = f"YouTube канал"
-        
+
         message_text = f"{video_url}\n\n<b>{source_name}</b>"
-        
+
         for assignment in assignments:
             try:
                 topic = assignment.topic
                 if not topic or topic.is_closed:
                     continue
-                
+
                 logger.info(f"📤 Отправляю видео в тему '{topic.topic_name}'")
-                
+
                 await self.bot.send_message(
                     chat_id=topic.telegram_chat_id,
                     message_thread_id=topic.telegram_thread_id,
@@ -142,9 +142,14 @@ class YouTubeSimpleMonitoringService:
                     parse_mode="HTML",
                     disable_web_page_preview=False
                 )
-                
+
+                # ✅ ОБНОВЛЯЕМ last_seen_at ПОСЛЕ УСПЕШНОЙ ОТПРАВКИ
+                topic.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                await session.flush()
+                logger.debug(f"✅ last_seen_at обновлён для темы {topic.topic_name}")
+
                 await asyncio.sleep(0.5)
-                
+
             except Exception as e:
                 logger.error(f"❌ Ошибка отправки видео {video_id}: {e}")
     

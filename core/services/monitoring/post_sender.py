@@ -7,6 +7,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Optional
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.models import ContentSource, ManagedGroup, GroupTopic
 from core.database import async_session
 from sqlalchemy import select
@@ -20,7 +22,7 @@ class PostSender:
     def __init__(self, bot):
         self.bot = bot
 
-    async def send_media_to_assignment(self, post: Dict, file_id: str, assignment, source: ContentSource):
+    async def send_media_to_assignment(self, post: Dict, file_id: str, assignment, source: ContentSource, session: AsyncSession):
         """Отправить медиа с file_id"""
         try:
             topic = assignment.topic
@@ -52,6 +54,12 @@ class PostSender:
                     message_thread_id=topic.telegram_thread_id
                 )
                 logger.info(f"✅ Медиа отправлено в тему '{topic.topic_name}'")
+
+                # ✅ ОБНОВЛЯЕМ last_seen_at ПОСЛЕ УСПЕШНОЙ ОТПРАВКИ
+                topic.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                await session.flush()
+                logger.debug(f"✅ last_seen_at обновлён для темы {topic.topic_name}")
+
                 return
 
             except Exception as photo_error:
@@ -66,17 +74,23 @@ class PostSender:
                         message_thread_id=topic.telegram_thread_id
                     )
                     logger.info(f"✅ Документ отправлен в тему '{topic.topic_name}'")
+
+                    # ✅ ОБНОВЛЯЕМ last_seen_at ПОСЛЕ УСПЕШНОЙ ОТПРАВКИ
+                    topic.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    await session.flush()
+                    logger.debug(f"✅ last_seen_at обновлён для темы {topic.topic_name}")
+
                     return
 
                 except Exception as doc_error:
                     logger.error(f"❌ Не удалось отправить медиа: {doc_error}")
-                    await self.send_text_to_assignment(post, assignment, source)
+                    await self.send_text_to_assignment(post, assignment, source, session)
 
         except Exception as e:
             logger.error(f"❌ Ошибка отправки медиа: {e}", exc_info=True)
             raise
 
-    async def send_text_to_assignment(self, post: Dict, assignment, source: ContentSource):
+    async def send_text_to_assignment(self, post: Dict, assignment, source: ContentSource, session: AsyncSession):
         """Отправить только текст"""
         try:
             topic = assignment.topic
@@ -94,6 +108,11 @@ class PostSender:
                 text=message_text,
                 thread_id=topic.telegram_thread_id
             )
+
+            # ✅ ОБНОВЛЯЕМ last_seen_at ПОСЛЕ УСПЕШНОЙ ОТПРАВКИ
+            topic.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            await session.flush()
+            logger.debug(f"✅ last_seen_at обновлён для темы {topic.topic_name}")
 
         except Exception as e:
             logger.error(f"❌ Ошибка отправки текста: {e}", exc_info=True)
