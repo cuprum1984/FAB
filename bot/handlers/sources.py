@@ -15,7 +15,7 @@ import logging
 import hashlib
 from datetime import datetime, timezone
 
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
@@ -403,8 +403,9 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
         )
         
         # ========== 4. ВЫБОР ГРУППЫ/ТЕМЫ ==========
-        destinations = await get_user_destinations(callback.from_user.id, session)
-        
+        # Получаем все назначения (пока со всеми темами)
+        destinations = await get_user_destinations(callback.from_user.id, session, only_existing_topics=False)
+
         if not destinations:
             await callback.message.edit_text(
                 get_text(['sources', 'error_no_groups']),
@@ -412,12 +413,49 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
             )
             await state.clear()
             return
-        
+
+        # Отправляем служебное сообщение
+        status_msg = None
+        try:
+            status_msg = await callback.message.answer(
+                "⏳ Обновляем списки, минуточку....",
+                disable_notification=True
+            )
+        except Exception:
+            pass
+
+        # Проверяем темы и фильтруем список
+        from core.utils.topic_checker import verify_user_topics
+        alive_topics, deleted_topics, total = await verify_user_topics(
+            callback.from_user.id,
+            callback.bot,
+            session
+        )
+
+        # Превращаем служебное сообщение в финальное
+        if status_msg:
+            try:
+                if deleted_topics:
+                    await status_msg.edit_text(
+                        f"📌 Выберите тему" #(скрыто {len(deleted_topics)} удалённых)"
+                    )
+                else:
+                    await status_msg.edit_text("📌 Выберите тему")
+            except:
+                pass
+
+        # Фильтруем destinations, оставляя только темы из alive_topics
+        alive_topic_identifiers = {t.topic_identifier for t in alive_topics}
+        filtered_destinations = [
+            d for d in destinations
+            if d.get("topic_identifier") in alive_topic_identifiers
+        ]
+
         # Сохраняем данные для следующего шага
         if source_type == "telegram":
             await state.update_data(
                 source_global_id=source_global_id,
-                destinations=destinations,
+                destinations=filtered_destinations,
                 first_post=first_post,
                 first_post_id=first_post_id,
                 source_title=source_title,
@@ -428,7 +466,7 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
         elif source_type == "youtube":
             await state.update_data(
                 source_global_id=source_global_id,
-                destinations=destinations,
+                destinations=filtered_destinations,
                 first_video=last_video,
                 first_video_id=last_video_id,
                 source_title=source_title,
@@ -437,13 +475,13 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
                 source_type="youtube",
                 source_created_now=created  # ✅ Флаг: источник создан в этом сеансе
             )
-        
+
         # ✅ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ С КЛАВИАТУРОЙ
         # Reply клавиатура с одной кнопкой "Отмена"
-        reply_kb = get_destinations_menu(destinations, get_text)
+        reply_kb = get_destinations_menu(filtered_destinations, get_text)
         # Inline клавиатура с пагинацией по группам
-        inline_kb = get_destinations_inline_kb(destinations, page=0, get_text=get_text)
-        
+        inline_kb = get_destinations_inline_kb(filtered_destinations, page=0, get_text=get_text)
+
         await callback.message.answer(
             get_text(['sources', 'add_saved']),
             parse_mode="HTML",
@@ -465,7 +503,6 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
             parse_mode="HTML"
         )
         await state.clear()
-
 
 @router.callback_query(AddChannel.confirm_channel, F.data == "cancel_add_channel")
 async def cancel_add_channel(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
@@ -830,12 +867,38 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
 
 @router.message(Command(commands=["list", "mysources"]))
 @router.message(F.text.in_(MY_SOURCES_BUTTONS))
-async def cmd_my_sources(message: Message, session: AsyncSession, get_text: callable):
+async def cmd_my_sources(message: Message, session: AsyncSession, get_text: callable, bot: Bot):
     """Показать источники пользователя сгруппированные по группам и темам"""
     user_id = message.from_user.id
-    
-    # Получаем группы пользователя
-    groups = await get_user_groups(user_id, session)
+
+    # Отправляем служебное сообщение (видят только админы)
+    status_msg = None
+    try:
+        status_msg = await message.answer(
+            "⏳ Обновляем списки, минуточку....",
+            disable_notification=True
+        )
+    except Exception:
+        pass
+
+    # Проверяем все темы пользователя
+    from core.utils.topic_checker import verify_user_topics
+    alive_topics, deleted_topics, total = await verify_user_topics(user_id, bot, session)
+
+    # Превращаем служебное сообщение в финальное
+    if status_msg:
+        try:
+            if deleted_topics:
+                await status_msg.edit_text(
+                    f"✅ Список обновлён" #(скрыто {len(deleted_topics)} удалённых тем)"
+                )
+            else:
+                await status_msg.edit_text("✅ Список обновлён")
+        except:
+            pass
+
+    # Получаем группы пользователя (только с живыми темами)
+    groups = await get_user_groups(user_id, session, only_existing_topics=True)
     if not groups:
         await message.answer(
             get_text(['sources', 'list_no_groups']),
@@ -843,9 +906,9 @@ async def cmd_my_sources(message: Message, session: AsyncSession, get_text: call
             reply_markup=get_main_menu(get_text)
         )
         return
-    
+
     group_ids = [group["chat_id"] for group in groups]
-    
+
     # Получаем все подписки для групп пользователя
     stmt = (
         select(
@@ -861,6 +924,7 @@ async def cmd_my_sources(message: Message, session: AsyncSession, get_text: call
         .join(TopicSourceAssignment, TopicSourceAssignment.subscription_id == SourceSubscription.subscription_id)
         .join(GroupTopic, GroupTopic.topic_identifier == TopicSourceAssignment.topic_identifier)
         .where(ManagedGroup.telegram_chat_id.in_(group_ids))
+        .where(GroupTopic.is_exists_in_tg == True)  # Только живые темы
         .order_by(ManagedGroup.telegram_chat_title, GroupTopic.topic_name, ContentSource.source_global_id)
     )
     
@@ -992,25 +1056,28 @@ async def cmd_my_sources(message: Message, session: AsyncSession, get_text: call
         reply_markup=get_source_list_kb(flat_sources, get_text=get_text)
     )
 
-
 @router.callback_query(F.data.startswith("src_page:"))
-async def navigate_sources(callback: CallbackQuery, session: AsyncSession, get_text: callable):
+async def navigate_sources(callback: CallbackQuery, session: AsyncSession, get_text: callable, bot: Bot):
     """Навигация по страницам источников - обновляет ВСЁ сообщение"""
     page = int(callback.data.split(":")[1])
-    
-    # Получаем все источники пользователя
     user_id = callback.from_user.id
-    groups = await get_user_groups(user_id, session)
-    
+
+    # Проверяем темы пользователя
+    from core.utils.topic_checker import verify_user_topics
+    alive_topics, deleted_topics, total = await verify_user_topics(user_id, bot, session)
+
+    # Получаем все источники пользователя (только с живыми темами)
+    groups = await get_user_groups(user_id, session, only_existing_topics=True)
+
     if not groups:
         await callback.message.edit_text(
             get_text(['sources', 'error_no_groups_short'])
         )
         await callback.answer()
         return
-    
+
     group_ids = [group["chat_id"] for group in groups]
-    
+
     # Получаем все подписки
     stmt = (
         select(
@@ -1026,6 +1093,7 @@ async def navigate_sources(callback: CallbackQuery, session: AsyncSession, get_t
         .join(TopicSourceAssignment, TopicSourceAssignment.subscription_id == SourceSubscription.subscription_id)
         .join(GroupTopic, GroupTopic.topic_identifier == TopicSourceAssignment.topic_identifier)
         .where(ManagedGroup.telegram_chat_id.in_(group_ids))
+        .where(GroupTopic.is_exists_in_tg == True)  # Только живые темы
         .order_by(ManagedGroup.telegram_chat_title, GroupTopic.topic_name, ContentSource.source_global_id)
     )
     

@@ -19,7 +19,8 @@ async def get_user_groups(
     account_id: int,
     session: AsyncSession,
     only_active: bool = True,
-    load_topics: bool = False
+    load_topics: bool = False,
+    only_existing_topics: bool = True
 ) -> List[Dict]:
     """
     Возвращает список всех групп, где пользователь является создателем (creator_id)
@@ -36,6 +37,9 @@ async def get_user_groups(
         },
         ...
     ]
+    
+    Args:
+        only_existing_topics: Если True, фильтровать темы по is_exists_in_tg=True
     """
     try:
         # Получаем группы, где пользователь является создателем
@@ -69,6 +73,7 @@ async def get_user_groups(
                         "is_closed": topic.is_closed
                     }
                     for topic in group.topics
+                    if not only_existing_topics or topic.is_exists_in_tg
                 ] if load_topics else []
             }
             for group in groups
@@ -84,17 +89,24 @@ async def get_user_destinations(
     session: AsyncSession,
     only_active: bool = True,
     include_general: bool = True,
-    include_closed_topics: bool = False
+    include_closed_topics: bool = False,
+    only_existing_topics: bool = True
 ) -> List[Dict]:
     """
     Список всех групп и тем, куда пользователь может направлять посты.
+    
+    Args:
+        only_existing_topics: Если True, фильтровать темы по is_exists_in_tg=True
     """
     try:
         destinations = []
         general_topics_added = set()
 
         # Получаем группы пользователя с темами
-        groups = await get_user_groups(account_id, session, only_active, load_topics=True)
+        groups = await get_user_groups(
+            account_id, session, only_active, load_topics=True,
+            only_existing_topics=only_existing_topics
+        )
 
         for group in groups:
             chat_id = group["chat_id"]
@@ -314,3 +326,39 @@ async def get_destination_by_display_name(
     except Exception as e:
         logger.error(f"❌ Ошибка поиска destination по имени {display_name}: {e}")
         return None
+
+
+async def get_user_topics_for_verification(
+    account_id: int,
+    session: AsyncSession
+) -> List[GroupTopic]:
+    """
+    Получить ВСЕ темы пользователя для проверки.
+    
+    Включает темы, которые уже помечены как удалённые (is_exists_in_tg=False),
+    чтобы можно было проверить их повторно.
+    
+    Args:
+        account_id: ID пользователя (creator_id)
+        session: Сессия БД
+    
+    Returns:
+        Список всех тем пользователя
+    """
+    # Получаем все группы пользователя
+    groups_stmt = select(ManagedGroup.telegram_chat_id).where(
+        ManagedGroup.creator_id == account_id
+    )
+    groups_result = await session.execute(groups_stmt)
+    group_chat_ids = [row[0] for row in groups_result.all()]
+    
+    if not group_chat_ids:
+        return []
+    
+    # Получаем все темы этих групп
+    topics_stmt = select(GroupTopic).where(
+        GroupTopic.telegram_chat_id.in_(group_chat_ids)
+    )
+    topics_result = await session.execute(topics_stmt)
+    
+    return list(topics_result.scalars().all())

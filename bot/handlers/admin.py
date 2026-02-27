@@ -352,53 +352,79 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
 
 
 @router.message(Command("mytopics"))
-async def cmd_my_topics(message: Message, session: AsyncSession, get_text: callable):
+async def cmd_my_topics(message: Message, session: AsyncSession, get_text: callable, bot: Bot):
     """Показать все зарегистрированные темы пользователя."""
     user_id = message.from_user.id
-    
-    # Получаем группы пользователя
-    groups = await get_user_groups(user_id, session)
-    
+
+    # Отправляем служебное сообщение
+    status_msg = None
+    try:
+        status_msg = await message.answer(
+            "⏳ Обновляем списки, минуточку....",
+            disable_notification=True
+        )
+    except Exception:
+        pass
+
+    # Проверяем все темы
+    from core.utils.topic_checker import verify_user_topics
+    alive_topics, deleted_topics, total = await verify_user_topics(user_id, bot, session)
+
+    # Превращаем служебное сообщение в финальное
+    if status_msg:
+        try:
+            if deleted_topics:
+                await status_msg.edit_text(
+                    f"✅ Список обновлён" #(скрыто {len(deleted_topics)} удалённых тем)"
+                )
+            else:
+                await status_msg.edit_text("✅ Список обновлён")
+        except:
+            pass
+
+    # Получаем группы пользователя (только с живыми темами)
+    groups = await get_user_groups(user_id, session, only_existing_topics=True)
+
     if not groups:
         await message.answer(
             get_text(['admin', 'mytopics_no_groups']),
             parse_mode="HTML"
         )
         return
-    
+
     text = get_text(['admin', 'mytopics_title'])
     total_topics = 0
-    
+
     for group in groups:
         chat_id = group["chat_id"]
-        
-        # Получаем темы этой группы из базы
+
+        # Получаем темы этой группы из базы (только живые)
         topics_stmt = select(GroupTopic).where(
             GroupTopic.telegram_chat_id == chat_id,
-            GroupTopic.is_closed == False
+            GroupTopic.is_closed == False,
+            GroupTopic.is_exists_in_tg == True
         ).order_by(GroupTopic.topic_name)
-        
+
         topics_result = await session.execute(topics_stmt)
         topics = topics_result.scalars().all()
-        
+
         if topics:
             text += get_text(['admin', 'mytopics_group_header'], name=html.escape(group['chat_title']))
-            
+
             for topic in topics:
                 emoji = get_text(['admin', 'mytopics_general']) if topic.telegram_thread_id is None else get_text(['admin', 'mytopics_topic'])
                 thread_info = f" (ID: {topic.telegram_thread_id})" if topic.telegram_thread_id else get_text(['admin', 'general_topic'])
                 text += get_text(['admin', 'mytopics_item'], emoji=emoji, name=html.escape(topic.topic_name), thread_info=thread_info)
                 total_topics += 1
-            
+
             text += "\n"
-    
+
     if total_topics == 0:
         text += get_text(['admin', 'mytopics_no_topics'])
-    
-    text += get_text(['admin', 'mytopics_total'], count=total_topics)
-    
-    await message.answer(text, parse_mode="HTML")
 
+    text += get_text(['admin', 'mytopics_total'], count=total_topics)
+
+    await message.answer(text, parse_mode="HTML")
 
 @router.message(Command("plus"))
 async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, get_text: callable):

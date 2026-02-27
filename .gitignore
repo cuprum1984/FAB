@@ -164,6 +164,10 @@ tests/__pycache__/
 t_aiohttp.py
 t_dns/
 .vscode
+test_del_topic.py
+test_topic_edit.py
+test_topic_silent.py
+
 # Spyder project settings
 .spyderproject
 .spyproject
