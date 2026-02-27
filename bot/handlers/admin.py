@@ -366,9 +366,12 @@ async def cmd_my_topics(message: Message, session: AsyncSession, get_text: calla
     except Exception:
         pass
 
+    # Получаем текст проверки из локализации
+    check_text = get_text(['topic_check', 'message'])
+
     # Проверяем все темы
     from core.utils.topic_checker import verify_user_topics
-    alive_topics, deleted_topics, total = await verify_user_topics(user_id, bot, session)
+    alive_topics, deleted_topics, total = await verify_user_topics(user_id, bot, session, check_text)
 
     # Превращаем служебное сообщение в финальное
     if status_msg:

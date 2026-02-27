@@ -55,7 +55,7 @@ MESSAGES = {
         "menu": "🏠 <b>Главное меню</b>",
         "error": "❌ Произошла ошибка. Попробуйте позже.",
     },
-    
+
     # ========== REFRESH (common.py) ==========
     "refresh": {
         "success": "🔄 <b>Интерфейс обновлён, {first_name}!</b>\n\n"
@@ -64,6 +64,11 @@ MESSAGES = {
                    #"• /add — добавить канал\n"
                    #"• /list — мои источники\n"
                    #"• /help — помощь",
+    },
+
+    # ========== TOPIC CHECK (topic_checker.py) ==========
+    "topic_check": {
+        "message": "🤗 Проверка...",
     },
     
     # ========== KEYBOARDS (keyboards.py) ==========

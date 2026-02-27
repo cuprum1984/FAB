@@ -56,7 +56,7 @@ MESSAGES = {
         "menu": "🏠 <b>Main Menu</b>",
         "error": "❌ An error occurred. Please try again later.",
     },
-    
+
     # ========== REFRESH (common.py) ==========
     "refresh": {
         "success": "🔄 <b>Interface refreshed, {first_name}!</b>\n\n"
@@ -66,7 +66,12 @@ MESSAGES = {
                    #"• /list — my sources\n"
                    #"• /help — help",
     },
-    
+
+    # ========== TOPIC CHECK (topic_checker.py) ==========
+    "topic_check": {
+        "message": "🤗 Checking...",
+    },
+
     # ========== KEYBOARDS (keyboards.py) ==========
     "keyboards": {
         # Main menu

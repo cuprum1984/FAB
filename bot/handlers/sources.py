@@ -424,12 +424,16 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
         except Exception:
             pass
 
+        # Получаем текст проверки из локализации
+        check_text = get_text(['topic_check', 'message'])
+
         # Проверяем темы и фильтруем список
         from core.utils.topic_checker import verify_user_topics
         alive_topics, deleted_topics, total = await verify_user_topics(
             callback.from_user.id,
             callback.bot,
-            session
+            session,
+            check_text
         )
 
         # Превращаем служебное сообщение в финальное
@@ -881,9 +885,12 @@ async def cmd_my_sources(message: Message, session: AsyncSession, get_text: call
     except Exception:
         pass
 
+    # Получаем текст проверки из локализации
+    check_text = get_text(['topic_check', 'message'])
+
     # Проверяем все темы пользователя
     from core.utils.topic_checker import verify_user_topics
-    alive_topics, deleted_topics, total = await verify_user_topics(user_id, bot, session)
+    alive_topics, deleted_topics, total = await verify_user_topics(user_id, bot, session, check_text)
 
     # Превращаем служебное сообщение в финальное
     if status_msg:
@@ -1062,9 +1069,12 @@ async def navigate_sources(callback: CallbackQuery, session: AsyncSession, get_t
     page = int(callback.data.split(":")[1])
     user_id = callback.from_user.id
 
+    # Получаем текст проверки из локализации
+    check_text = get_text(['topic_check', 'message'])
+
     # Проверяем темы пользователя
     from core.utils.topic_checker import verify_user_topics
-    alive_topics, deleted_topics, total = await verify_user_topics(user_id, bot, session)
+    alive_topics, deleted_topics, total = await verify_user_topics(user_id, bot, session, check_text)
 
     # Получаем все источники пользователя (только с живыми темами)
     groups = await get_user_groups(user_id, session, only_existing_topics=True)

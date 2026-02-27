@@ -2,9 +2,10 @@
 """
 Утилиты для проверки существования тем в Telegram.
 
-Проверка происходит путём отправки тестового сообщения (точки) в тему
-и его немедленного удаления. Если тема удалена в Telegram - получаем ошибку.
+Проверка происходит путём отправки дружелюбного сообщения "🤗 Проверка...",
+ожидания 4 секунды и удаления сообщения.
 """
+import asyncio
 import logging
 from typing import List, Tuple, Optional
 
@@ -17,22 +18,27 @@ from core.services.destinations.access import get_user_topics_for_verification
 
 logger = logging.getLogger(__name__)
 
+# Настройки проверки
+CHECK_DELAY_SECONDS = 4  # Задержка перед удалением
+
 
 async def check_topic_live(
     bot: Bot,
     chat_id: int,
-    thread_id: Optional[int]
+    thread_id: Optional[int],
+    check_text: str = "🤗 Проверка..."
 ) -> bool:
     """
     Проверить, можно ли писать в тему.
     
-    Отправляет тестовое сообщение (точку) и сразу удаляет его.
-    
+    Отправляет дружелюбное сообщение, ждёт 4 секунды, удаляет.
+
     Args:
         bot: Экземпляр бота
         chat_id: ID группы
         thread_id: ID темы (None для General)
-    
+        check_text: Текст сообщения проверки (из локализации)
+
     Returns:
         True если тема жива, False если удалена
     """
@@ -40,9 +46,14 @@ async def check_topic_live(
         msg = await bot.send_message(
             chat_id=chat_id,
             message_thread_id=thread_id,
-            text=".",
+            text=check_text,
             disable_notification=True
         )
+        
+        # Ждём 4 секунды (пользователь видит сообщение)
+        await asyncio.sleep(CHECK_DELAY_SECONDS)
+        
+        # Удаляем сообщение
         await bot.delete_message(
             chat_id=chat_id,
             message_id=msg.message_id
@@ -68,16 +79,18 @@ async def check_topic_live(
 async def verify_user_topics(
     user_id: int,
     bot: Bot,
-    session: AsyncSession
+    session: AsyncSession,
+    check_text: str = "🤗 Проверка..."
 ) -> Tuple[List[GroupTopic], List[GroupTopic], int]:
     """
     Проверить все темы пользователя в Telegram.
-    
+
     Args:
         user_id: ID пользователя
         bot: Экземпляр бота
         session: Сессия БД
-    
+        check_text: Текст сообщения проверки (из локализации)
+
     Returns:
         Кортеж из:
         - список живых тем (GroupTopic)
@@ -99,7 +112,7 @@ async def verify_user_topics(
     tasks = []
     for topic in topics:
         tasks.append(
-            check_topic_live(bot, topic.telegram_chat_id, topic.telegram_thread_id)
+            check_topic_live(bot, topic.telegram_chat_id, topic.telegram_thread_id, check_text)
         )
     
     results = await gather(*tasks, return_exceptions=True)
@@ -123,5 +136,11 @@ async def verify_user_topics(
     if deleted_topics:
         await session.commit()
         logger.info(f"✅ Обновлено {len(deleted_topics)} удалённых тем в БД")
-
+    
+    logger.info(
+        f"📊 Проверено {len(topics)} тем: "
+        f"{len(alive_topics)} живых, "
+        f"{len(deleted_topics)} удалённых"
+    )
+    
     return alive_topics, deleted_topics, len(topics)
