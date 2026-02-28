@@ -4,6 +4,8 @@
 
 Проверка происходит путём отправки дружелюбного сообщения "🤗 Проверка...",
 ожидания 4 секунды и удаления сообщения.
+
+Проверка выполняется асинхронно — бот не ждёт удаления сообщений.
 """
 import asyncio
 import logging
@@ -32,6 +34,7 @@ async def check_topic_live(
     Проверить, можно ли писать в тему.
     
     Отправляет дружелюбное сообщение, ждёт 4 секунды, удаляет.
+    НЕ БЛОКИРУЕТ основной процесс — удаление происходит в фоне.
 
     Args:
         bot: Экземпляр бота
@@ -50,14 +53,9 @@ async def check_topic_live(
             disable_notification=True
         )
         
-        # Ждём 4 секунды (пользователь видит сообщение)
-        await asyncio.sleep(CHECK_DELAY_SECONDS)
+        # Создаём задачу на удаление через 4 секунды (в фоне)
+        asyncio.create_task(delete_check_message(bot, chat_id, msg.message_id))
         
-        # Удаляем сообщение
-        await bot.delete_message(
-            chat_id=chat_id,
-            message_id=msg.message_id
-        )
         return True
         
     except TelegramBadRequest as e:
@@ -76,6 +74,23 @@ async def check_topic_live(
         return True
 
 
+async def delete_check_message(
+    bot: Bot,
+    chat_id: int,
+    message_id: int
+):
+    """
+    Удалить сообщение проверки через 4 секунды.
+    Запускается как фоновая задача.
+    """
+    try:
+        await asyncio.sleep(CHECK_DELAY_SECONDS)
+        await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        logger.debug(f"🗑️ Сообщение проверки {message_id} в {chat_id} удалено")
+    except Exception as e:
+        logger.debug(f"⚠️ Не удалось удалить сообщение проверки {message_id}: {e}")
+
+
 async def verify_user_topics(
     user_id: int,
     bot: Bot,
@@ -84,6 +99,8 @@ async def verify_user_topics(
 ) -> Tuple[List[GroupTopic], List[GroupTopic], int]:
     """
     Проверить все темы пользователя в Telegram.
+    
+    Проверка выполняется асинхронно — бот не ждёт удаления сообщений.
 
     Args:
         user_id: ID пользователя
