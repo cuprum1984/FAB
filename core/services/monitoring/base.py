@@ -103,6 +103,13 @@ class MonitoringService:
                     if not await self._should_check_source(source):
                         continue
 
+                    # ✅ ПРОВЕРКА: есть ли активные назначения у источника
+                    if not await self._has_active_assignments(source.source_global_id, session):
+                        logger.debug(f"📭 Пропускаю источник {source.source_global_id}: нет активных назначений")
+                        source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+                        await session.flush()
+                        continue
+
                     if source.source_type == 'telegram':
                         await self.telegram_monitor.check_telegram_source(source, session)
                     elif source.source_type == 'youtube':
@@ -226,7 +233,7 @@ class MonitoringService:
         )
         from sqlalchemy.orm import selectinload
         from sqlalchemy import and_
-        
+
         stmt = (
             select(TopicSourceAssignment)
             .join(
@@ -256,6 +263,47 @@ class MonitoringService:
 
         result = await session.execute(stmt)
         return result.scalars().all()
+
+    async def _has_active_assignments(self, source_global_id: str, session: AsyncSession) -> bool:
+        """
+        Проверить, есть ли у источника активные назначения.
+        Возвращает True, если есть хотя бы одно активное назначение.
+        """
+        from core.models import (
+            TopicSourceAssignment,
+            SourceSubscription,
+            GroupTopic,
+            ManagedGroup
+        )
+        from sqlalchemy import and_
+
+        # Проверяем наличие хотя бы одного активного назначения
+        stmt = (
+            select(TopicSourceAssignment.assignment_id)
+            .join(
+                SourceSubscription,
+                SourceSubscription.subscription_id == TopicSourceAssignment.subscription_id
+            )
+            .join(
+                GroupTopic,
+                GroupTopic.topic_identifier == TopicSourceAssignment.topic_identifier
+            )
+            .join(
+                ManagedGroup,
+                ManagedGroup.telegram_chat_id == GroupTopic.telegram_chat_id
+            )
+            .where(
+                and_(
+                    SourceSubscription.source_global_id == source_global_id,
+                    GroupTopic.is_closed == False,
+                    ManagedGroup.is_bot_active_in_group == True
+                )
+            )
+            .limit(1)
+        )
+
+        result = await session.execute(stmt)
+        return result.scalar() is not None
 
 
 # Импорты в конце для избежания циклических зависимостей
