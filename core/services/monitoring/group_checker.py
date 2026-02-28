@@ -69,11 +69,11 @@ class GroupChecker:
 
                 # Ждём 12 часов до следующей проверки
                 logger.info("⏳ Следующая проверка групп через 12 часов")
-                for _ in range(12 * 3600):  # 12 часов в секундах
+                for _ in range(300):  # 12 12 * 3600 часов в секундах #
                     if not self.monitoring.is_running:
                         break
                     await asyncio.sleep(1)
 
             except Exception as e:
                 logger.error(f"❌ Ошибка в schedule_groups_check: {e}")
-                await asyncio.sleep(3600)  # Если ошибка, ждём час и пробуем снова
+                await asyncio.sleep(300)  # Если ошибка, ждём час и пробуем снова (3600)
