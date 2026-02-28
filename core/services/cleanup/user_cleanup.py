@@ -89,7 +89,7 @@ async def cleanup_dead_groups(session: AsyncSession):
     console_print(msg)
 
     try:
-        cutoff_date = datetime.utcnow() - timedelta(days=90)
+        cutoff_date = datetime.utcnow() - timedelta(days=0)
 
         # Находим группы для удаления
         stmt = select(ManagedGroup).where(
