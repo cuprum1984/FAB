@@ -5,10 +5,12 @@ Redis клиент для MyAggryBot.
 Изменения:
 - Добавлена персистентность для FakeRedis через файл
 - Улучшена обработка ошибок
+- Добавлена проверка TTL для FileFakeRedis
 """
 import os
 import json
 import logging
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -60,8 +62,27 @@ class FileFakeRedis:
             logger.error(f"❌ Ошибка сохранения в файл: {e}")
     
     async def get(self, key: str) -> Optional[str]:
-        """Получить значение по ключу"""
-        value = self.data.get(key)
+        """Получить значение по ключу с проверкой TTL"""
+        item = self.data.get(key)
+        if item is None:
+            logger.debug(f"📖 GET {key}: None (не найден)")
+            return None
+        
+        # Проверяем TTL
+        if isinstance(item, dict) and 'expires_at' in item:
+            try:
+                expires_at = datetime.fromisoformat(item['expires_at'])
+                if datetime.now() > expires_at:
+                    # Кэш устарел - удаляем
+                    del self.data[key]
+                    self._save()
+                    logger.debug(f"📖 GET {key}: None (истёк TTL)")
+                    return None
+            except Exception as e:
+                logger.debug(f"⚠️ Ошибка проверки TTL для {key}: {e}")
+        
+        # Получаем значение
+        value = item.get('value') if isinstance(item, dict) else item
         logger.debug(f"📖 GET {key}: {value}")
         return value
     
@@ -70,10 +91,10 @@ class FileFakeRedis:
         self.data[key] = {
             'value': value,
             'ttl': ttl,
-            'expires_at': None  # в простой реализации игнорируем TTL
+            'expires_at': (datetime.now() + timedelta(seconds=ttl)).isoformat()
         }
         self._save()
-        logger.debug(f"📝 SET {key}: {value}")
+        logger.debug(f"📝 SET {key}: {value} (TTL={ttl}с)")
     
     async def delete(self, key: str):
         """Удалить ключ"""

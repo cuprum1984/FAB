@@ -429,6 +429,7 @@ async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, sessio
 
         # Проверяем темы и фильтруем список
         from core.utils.topic_checker import verify_user_topics
+        # ✅ Кэш теперь не блокирует данные — получаем темы из БД
         alive_topics, deleted_topics, total = await verify_user_topics(
             callback.from_user.id,
             callback.bot,
@@ -702,10 +703,10 @@ async def finalize_destination_choice(
             session=session
         )
         logger.info(f"✅ Создано назначение ID: {assignment.assignment_id}")
-        
+
         # ========== 4. СОХРАНЯЕМ ВСЁ ==========
         await session.commit()
-        
+
         # ========== 5. 🎯 ОТПРАВЛЯЕМ ТОЛЬКО 1 ПОСТ! ==========
         if source_type == "telegram":
             first_post = data.get("first_post")
@@ -1294,9 +1295,9 @@ async def delete_source_subscription(callback: CallbackQuery, session: AsyncSess
             
             # Удаляем саму подписку
             await session.delete(sub)
-        
+
         await session.commit()
-        
+
         # Показываем обновленный список
         await callback.answer(get_text(['sources', 'delete_success']))
         
