@@ -21,9 +21,6 @@ from core.services.destinations.access import get_user_topics_for_verification
 
 logger = logging.getLogger(__name__)
 
-# Настройки проверки
-CHECK_DELAY_SECONDS = 4  # Задержка перед удалением
-
 
 async def check_topic_live(
     bot: Bot,
@@ -35,8 +32,8 @@ async def check_topic_live(
     """
     Проверить, можно ли писать в тему.
 
-    Отправляет дружелюбное сообщение, ждёт 4 секунды, удаляет.
-    НЕ БЛОКИРУЕТ основной процесс — удаление происходит в фоне.
+    Отправляет сообщение, сразу удаляет его.
+    Блокирует выполнение до завершения обеих операций.
 
     Args:
         bot: Экземпляр бота
@@ -46,9 +43,10 @@ async def check_topic_live(
         check_text: Текст сообщения проверки (из локализации)
 
     Returns:
-        True если тема жива, False если удалена
+        True если тема жива, False если удалена или бот заблокирован
     """
     try:
+        # Отправляем сообщение
         msg = await bot.send_message(
             chat_id=chat_id,
             message_thread_id=thread_id,
@@ -56,8 +54,9 @@ async def check_topic_live(
             disable_notification=True
         )
 
-        # Создаём задачу на удаление через 4 секунды (в фоне)
-        asyncio.create_task(delete_check_message(bot, chat_id, msg.message_id))
+        # Сразу удаляем сообщение (ждем завершения)
+        await bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
+        logger.debug(f"✅ Проверка темы {chat_id}:{thread_id} пройдена")
 
         return True
 
@@ -100,23 +99,6 @@ async def check_topic_live(
         logger.error(f"❌ Неожиданная ошибка при проверке темы {chat_id}:{thread_id}: {e}")
         # При неизвестной ошибке считаем тему живой (чтобы не удалять ложно)
         return True
-
-
-async def delete_check_message(
-    bot: Bot,
-    chat_id: int,
-    message_id: int
-):
-    """
-    Удалить сообщение проверки через 4 секунды.
-    Запускается как фоновая задача.
-    """
-    try:
-        await asyncio.sleep(CHECK_DELAY_SECONDS)
-        await bot.delete_message(chat_id=chat_id, message_id=message_id)
-        logger.debug(f"🗑️ Сообщение проверки {message_id} в {chat_id} удалено")
-    except Exception as e:
-        logger.debug(f"⚠️ Не удалось удалить сообщение проверки {message_id}: {e}")
 
 
 async def verify_user_topics(
