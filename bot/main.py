@@ -46,6 +46,7 @@ from bot.handlers import (
     admin,
     topics_auto,
     settings_handler,
+    my_sources_interactive,
 )
 
 # Настройка логирования
@@ -305,6 +306,7 @@ async def main():
     dp.include_router(admin.router)
     dp.include_router(topics_auto.forum_router)  # Служебные события тем
     dp.include_router(topics_auto.router)  # Обычные сообщения
+    dp.include_router(my_sources_interactive.router)  # Интерактивные источники (РАНЬШЕ settings!)
     dp.include_router(settings_handler.router)  # Настройки
     logger.info("[OK] Роутеры подключены")
 

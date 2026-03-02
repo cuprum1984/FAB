@@ -107,6 +107,17 @@ MESSAGES = {
             "placeholder": "Choose a group...",
             "active_prefix": "✅",
             "inactive_prefix": "❌",
+            "prev": "◀️ Back",
+            "next": "Next ▶️",
+            "cancel": "❌ Cancel",
+            "dot": ".",
+        },
+
+        "topics_menu": {
+            "prev": "◀️ Back",
+            "next": "Next ▶️",
+            "back": "← Back",
+            "dot": ".",
         },
         
         # Destinations menu (groups/topics)
@@ -124,6 +135,7 @@ MESSAGES = {
             "prev": "◀️ Back",
             "next": "Forward ▶️",
             "noop": "⏺️",
+            "dot": ".",
         },
 
         # Cancel/back
@@ -161,12 +173,13 @@ MESSAGES = {
         # Sources list
         "sources_list": {
             "view_source": "📰 {name}",
-            "delete": "❌ Delete",
+            "delete": "❌",
             "prev": "◀️ Back",
             "next": "Next ▶️",
             "close": "❌ Close",
             "page": "{current}/{total}",
             "noop": "⏺️",
+            "dot": ".",
         },
     },
     

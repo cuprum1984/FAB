@@ -52,10 +52,16 @@ SETTINGS_BUTTONS = [
 ]
 # Все остальные кнопки используют локализованный текст
 
-@router.callback_query(~F.data.startswith("set_lang:") & ~(F.data == "back_to_settings"))  # Исключаем set_lang и back_to_settings из дебага
+@router.callback_query(
+    ~F.data.startswith("set_lang:") &
+    ~(F.data == "back_to_settings") &
+    ~F.data.startswith("list_") &  # Исключаем list_group, list_topic, list_back
+    ~F.data.startswith("del_source:") &  # Исключаем del_source (из sources.py)
+    ~F.data.startswith("del_sub:")  # Исключаем del_sub (из my_sources_interactive.py)
+)
 async def debug_callbacks(callback: CallbackQuery):
-    """Временный дебаг - логирует все callbacks кроме set_lang и back_to_settings"""
-    logger.info(f"🔥 CALLBACK: {callback.data}")
+    """Временный дебаг - логирует все callbacks кроме set_lang, back_to_settings, list_*, del_source, del_sub"""
+    logger.info(f"🔥 SETTINGS CALLBACK: {callback.data}")
     # НЕ отвечаем, чтобы не блокировать другие хендлеры
 
 

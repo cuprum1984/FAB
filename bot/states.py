@@ -43,3 +43,10 @@ class Settings(StatesGroup):
     icons = State()                     # Выбор стиля иконок
     notifications = State()              # Настройки уведомлений
     confirm_delete = State()             # Подтверждение удаления данных
+
+
+class MySources(StatesGroup):
+    """Состояния для навигации по источникам (интерактивное)"""
+    viewing_groups = State()    # Просмотр списка групп
+    viewing_topics = State()    # Просмотр списка топиков
+    viewing_sources = State()   # Просмотр списка источников
