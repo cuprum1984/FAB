@@ -15,7 +15,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models import TelegramAccount, UserPreferences
-from bot.keyboards import get_main_menu
+from bot.keyboards import get_main_menu_inline
+from bot.utils.menu_message import update_or_send_menu, clear_menu_message, MENU_MESSAGE_ID_KEY
 from aiogram import Bot
 
 logger = logging.getLogger(__name__)
@@ -27,9 +28,9 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
     """Обработчик команды /start"""
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "User"
-    
+
     await state.clear()
-    
+
     # Проверяем пользователя
     stmt = select(TelegramAccount).where(TelegramAccount.telegram_account_id == user_id)
     result = await session.execute(stmt)
@@ -44,20 +45,24 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
             language_code=message.from_user.language_code or 'en'
         )
         session.add(new_account)
-        
+
         prefs = UserPreferences(user_id=user_id, language=new_account.language_code)
         session.add(prefs)
         await session.commit()
-        
+
         text = get_text(['common', 'start_new'], first_name=first_name)
     else:
         text = get_text(['common', 'start_return'], first_name=first_name)
 
-    # Отправляем ответ С КЛАВИАТУРОЙ
-    await message.answer(
-        text,
-        parse_mode="HTML",
-        reply_markup=get_main_menu(get_text)
+    # Отправляем/обновляем сообщение с INLINE-КЛАВИАТУРОЙ
+    # Используем update_or_send_menu с fallback_message
+    await update_or_send_menu(
+        bot=message.bot,
+        chat_id=user_id,
+        text=text,
+        keyboard=get_main_menu_inline(get_text),
+        state=state,
+        fallback_message=message
     )
 
 
@@ -70,12 +75,15 @@ REFRESH_BUTTONS = ["🔄 Обновить", "🔄 Refresh", "🔄 Оновити
 
 @router.message(Command("help"))
 @router.message(F.text.in_(HELP_BUTTONS))
-async def cmd_help(message: Message, get_text: callable):
+async def cmd_help(message: Message, state: FSMContext, get_text: callable):
     """Обработчик команды /help"""
-    await message.answer(
-        get_text(['common', 'help']),
-        parse_mode="HTML",
-        reply_markup=get_main_menu(get_text)
+    await update_or_send_menu(
+        bot=message.bot,
+        chat_id=message.from_user.id,
+        text=get_text(['common', 'help']),
+        keyboard=get_main_menu_inline(get_text),
+        state=state,
+        fallback_message=message
     )
 
 
@@ -83,10 +91,13 @@ async def cmd_help(message: Message, get_text: callable):
 async def cmd_menu(message: Message, state: FSMContext, get_text: callable):
     """Возврат в меню"""
     await state.clear()
-    await message.answer(
-        get_text(['common', 'menu']),
-        parse_mode="HTML",
-        reply_markup=get_main_menu(get_text)
+    await update_or_send_menu(
+        bot=message.bot,
+        chat_id=message.from_user.id,
+        text=get_text(['common', 'menu']),
+        keyboard=get_main_menu_inline(get_text),
+        state=state,
+        fallback_message=message
     )
 
 
@@ -96,18 +107,24 @@ async def cmd_cancel(message: Message, state: FSMContext, session: AsyncSession,
     """Отмена текущего действия"""
     current_state = await state.get_state()
     if current_state is None:
-        await message.answer(
-            get_text(['common', 'no_active_action']),
-            parse_mode="HTML",
-            reply_markup=get_main_menu(get_text)
+        await update_or_send_menu(
+            bot=message.bot,
+            chat_id=message.from_user.id,
+            text=get_text(['common', 'no_active_action']),
+            keyboard=get_main_menu_inline(get_text),
+            state=state,
+            fallback_message=message
         )
         return
 
     await state.clear()
-    await message.answer(
-        get_text(['common', 'cancel']),
-        parse_mode="HTML",
-        reply_markup=get_main_menu(get_text)
+    await update_or_send_menu(
+        bot=message.bot,
+        chat_id=message.from_user.id,
+        text=get_text(['common', 'cancel']),
+        keyboard=get_main_menu_inline(get_text),
+        state=state,
+        fallback_message=message
     )
 
 
@@ -115,18 +132,21 @@ async def cmd_cancel(message: Message, state: FSMContext, session: AsyncSession,
 @router.message(F.text.in_(REFRESH_BUTTONS))
 async def cmd_refresh(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
     """Обновить интерфейс (как /start, но мягче)"""
-    
+
     # Сбрасываем состояние
     await state.clear()
-    
+
     # Показываем приветствие
     user = message.from_user
     first_name = user.first_name or "User"
-    
-    await message.answer(
-        get_text(['refresh', 'success'], first_name=first_name),
-        parse_mode="HTML",
-        reply_markup=get_main_menu(get_text)
+
+    await update_or_send_menu(
+        bot=message.bot,
+        chat_id=message.from_user.id,
+        text=get_text(['refresh', 'success'], first_name=first_name),
+        keyboard=get_main_menu_inline(get_text),
+        state=state,
+        fallback_message=message
     )
 
 
@@ -135,11 +155,38 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext, session: Asyn
     """Вернуться в главное меню (по callback)"""
     await callback.answer()
     await state.clear()
-    await callback.message.delete()
-    await callback.message.answer(
-        get_text(['common', 'menu']),
-        parse_mode="HTML",
-        reply_markup=get_main_menu(get_text)
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['common', 'menu']),
+        keyboard=get_main_menu_inline(get_text),
+        state=state
+    )
+
+
+@router.callback_query(F.data == "back_to_main")
+async def back_to_main(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Вернуться в главное меню из любого состояния (универсальный)"""
+    await callback.answer()
+    
+    # Сохраняем message_id перед очисткой состояния!
+    data = await state.get_data()
+    menu_message_id = data.get(MENU_MESSAGE_ID_KEY)
+    
+    # Очищаем состояние, КРОМЕ message_id
+    await state.clear()
+    
+    # Восстанавливаем message_id
+    if menu_message_id:
+        await state.update_data({MENU_MESSAGE_ID_KEY: menu_message_id})
+    
+    # Обновляем текущее сообщение на главное меню
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['common', 'menu']),
+        keyboard=get_main_menu_inline(get_text),
+        state=state
     )
 
 
@@ -164,3 +211,127 @@ async def cmd_api_version(message: Message, bot: Bot, get_text: callable):
             )
     except Exception as e:
         await message.answer(f"❌ Памылка: {e}")
+
+
+# ========== ОБРАБОТЧИКИ CALLBACK_QUERY ДЛЯ ГЛАВНОГО МЕНЮ ==========
+@router.callback_query(F.data == "menu_add")
+async def on_menu_add(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Обработчик кнопки "Добавить канал" — запускает процесс добавления"""
+    await callback.answer()
+
+    # Импортируем хендлер добавления канала из sources.py
+    from bot.handlers.sources import cmd_add_channel
+    from aiogram.types import Message
+    
+    # Создаём фейковый Message объект с правильным from_user
+    # Используем model_construct для обхода валидации
+    fake_message = Message.model_construct(
+        message_id=callback.message.message_id,
+        date=callback.message.date,
+        chat=callback.message.chat,
+        from_user=callback.from_user,  # ✅ Реальный пользователь!
+    )
+
+    # Вызываем обработку напрямую с явной передачей bot
+    await cmd_add_channel(fake_message, state, session, get_text, bot=callback.bot)
+
+
+@router.callback_query(F.data == "menu_sources")
+async def on_menu_sources(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Обработчик кнопки "Источники" - вызывает /list"""
+    await callback.answer()
+    
+    # Логируем информацию о пользователе
+    user_id = callback.from_user.id
+    is_bot = callback.from_user.is_bot
+    username = callback.from_user.username
+    full_name = callback.from_user.full_name
+    
+    logger.info(f"🔘 Кнопка 'Мои источники' нажата:")
+    logger.info(f"   - from_user.id: {user_id}")
+    logger.info(f"   - from_user.is_bot: {is_bot}")
+    logger.info(f"   - from_user.username: @{username}")
+    logger.info(f"   - from_user.full_name: {full_name}")
+    
+    # Сохраняем message_id перед очисткой состояния!
+    data = await state.get_data()
+    menu_message_id = data.get('_menu_message_id')
+    logger.info(f"💾 Сохранён menu_message_id: {menu_message_id}")
+    
+    # Очищаем состояние, КРОМЕ message_id
+    await state.clear()
+    
+    # Восстанавливаем message_id
+    if menu_message_id:
+        await state.update_data({'_menu_message_id': menu_message_id})
+        logger.info(f"💾 Восстановлен menu_message_id: {menu_message_id}")
+    
+    # Импортируем функцию обработки из my_sources_interactive
+    from bot.handlers.my_sources_interactive import _process_my_sources_from_callback
+    
+    # Вызываем обработку напрямую — ПЕРЕДАЁМ callback.from_user.id
+    await _process_my_sources_from_callback(
+        callback=callback,
+        session=session,
+        state=state,
+        get_text=get_text
+    )
+
+
+@router.callback_query(F.data == "menu_feed")
+async def on_menu_feed(callback: CallbackQuery, state: FSMContext, get_text: callable):
+    """Обработчик кнопки "Лента" """
+    await callback.answer()
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text="📰 <b>Лента</b>\n\nИспользуйте команду /feed для просмотра ленты.",
+        keyboard=get_main_menu_inline(get_text),
+        state=state
+    )
+
+
+@router.callback_query(F.data == "menu_help")
+async def on_menu_help(callback: CallbackQuery, state: FSMContext, get_text: callable):
+    """Обработчик кнопки "Помощь" """
+    await callback.answer()
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['common', 'help']),
+        keyboard=get_main_menu_inline(get_text),
+        state=state
+    )
+
+
+@router.callback_query(F.data == "menu_settings")
+async def on_menu_settings(callback: CallbackQuery, state: FSMContext, get_text: callable):
+    """Обработчик кнопки "Настройки" """
+    from bot.keyboards import get_settings_menu_inline
+    
+    await callback.answer()
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text="⚙️ <b>Настройки</b>\n\nИспользуйте команду /settings для изменения настроек.",
+        keyboard=get_settings_menu_inline(get_text),
+        state=state
+    )
+
+
+@router.callback_query(F.data == "menu_refresh")
+async def on_menu_refresh(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Обработчик кнопки "Обновить" """
+    await callback.answer()
+    await state.clear()
+    
+    user = callback.from_user
+    first_name = user.first_name or "User"
+    
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['refresh', 'success'], first_name=first_name),
+        keyboard=get_main_menu_inline(get_text),
+        state=state
+    )

@@ -33,7 +33,7 @@ from core.parser.telegram import check_channel_exists, get_channel_title
 from core.parser.telegram_posts import get_new_posts as get_telegram_posts
 from core.parser.youtube_simple import get_parser
 from core.services.destination_service import (
-    get_user_destinations, 
+    get_user_destinations,
     get_user_groups,
     get_source_subscription,
     create_source_subscription,
@@ -41,18 +41,19 @@ from core.services.destination_service import (
     get_or_create_content_source,
     create_user_channel_subscription
 )
+from core.utils.topic_checker import verify_user_topics
 from core.redis_client import set_cached_last_post
 from core.security import URLSecurity
 from bot.states import AddChannel, MySources
 from bot.keyboards import (
-    get_main_menu,
+    get_main_menu_inline,
     get_source_list_kb,
     get_destinations_menu,
     get_destinations_inline_kb,
-    get_cancel_kb_reply,
     get_confirm_channel_kb,
     get_cancel_kb
 )
+from bot.utils.menu_message import update_or_send_menu, delete_menu_message_with_delay, MENU_MESSAGE_ID_KEY
 
 
 # Настройка логгера
@@ -70,52 +71,60 @@ MY_SOURCES_BUTTONS = ["📚 Мои источники", "📚 My sources", "📚
 
 @router.message(Command("add"))
 @router.message(F.text.in_(ADD_CHANNEL_BUTTONS))
-async def cmd_add_channel(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
-    """Начать процесс добавления канала."""
-    
+async def cmd_add_channel(message: Message, state: FSMContext, session: AsyncSession, get_text: callable, bot: Bot = None):
+    """Начать процесс добавления канала — обновляем текущее сообщение."""
+
     logger.info(f"📥 Пользователь {message.from_user.id} начал добавление канала")
-    
+
+    # Если bot не передан, используем message.bot
+    if bot is None:
+        bot = message.bot
+
     groups = await get_user_groups(message.from_user.id, session)
     if not groups:
-        await message.answer(
-            get_text(['sources', 'add_no_groups']),
-            parse_mode="HTML",
-            reply_markup=get_main_menu(get_text)
+        await update_or_send_menu(
+            bot=bot,
+            chat_id=message.from_user.id,
+            text=get_text(['sources', 'add_no_groups']),
+            keyboard=get_main_menu_inline(get_text),
+            state=state
         )
         return
-    
-    await message.answer(
-        get_text(['sources', 'add_prompt']),
-        parse_mode="HTML",
-        reply_markup=get_cancel_kb_reply(get_text)
+
+    # Обновляем текущее сообщение — просим ввести username
+    await update_or_send_menu(
+        bot=bot,
+        chat_id=message.from_user.id,
+        text=get_text(['sources', 'add_prompt']),
+        keyboard=get_cancel_kb(get_text),
+        state=state
     )
     await state.set_state(AddChannel.waiting_for_username)
 
 
 @router.message(AddChannel.waiting_for_username)
-async def process_channel_username(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
-    """Обработать ввод username канала или ссылки."""
-    raw_input = URLSecurity.sanitize_input(message.text.strip())
+async def process_channel_username(message: Message, state: FSMContext, session: AsyncSession, get_text: callable, bot: Bot = None):
+    """Обработать ввод username канала или ссылки — сразу проверяем и добавляем."""
+    # Если bot не передан, используем message.bot
+    if bot is None:
+        bot = message.bot
     
+    raw_input = URLSecurity.sanitize_input(message.text.strip())
+
     # Декодируем URL-encoded символы (для кириллицы)
     try:
         raw_input = urllib.parse.unquote(raw_input)
         logger.debug(f"🔤 Декодировано: {raw_input}")
     except:
         pass
-    
+
     if raw_input in ("❌ Отмена", "❌ Cancel"):
-        await message.answer(
-            get_text(['sources', 'add_cancelled']),
-            parse_mode="HTML", 
-            reply_markup=get_main_menu(get_text)
-        )
-        await state.clear()
+        await cancel_add_channel_flow(callback=None, bot=bot, chat_id=message.from_user.id, state=state, session=session, get_text=get_text)
         return
-    
+
     # ========== 🔍 ПРОВЕРЯЕМ, НЕ YOUTUBE ЛИ ЭТО ==========
     is_youtube = False
-    
+
     # Проверяем наличие youtube.com или youtu.be в ссылке
     if 'youtube.com/' in raw_input or 'youtu.be/' in raw_input:
         is_youtube = True
@@ -123,24 +132,21 @@ async def process_channel_username(message: Message, state: FSMContext, session:
     elif raw_input.startswith('@'):
         # Если это просто @username - это Telegram!
         logger.info(f"📱 Обнаружен Telegram username: {raw_input}")
-        # is_youtube остаётся False
-    
+
     if is_youtube:
         # Проверяем безопасность URL
         is_safe, reason = URLSecurity.validate_url(raw_input, 'youtube')
         if not is_safe:
-            await message.answer(
-                get_text(['sources', 'youtube_blocked'], reason=reason),
-                parse_mode="HTML",
-                reply_markup=get_cancel_kb_reply(get_text)
+            await update_or_send_menu(
+                bot=bot,
+                chat_id=message.from_user.id,
+                text=get_text(['sources', 'youtube_blocked'], reason=reason),
+                keyboard=get_cancel_kb(get_text),
+                state=state,
+                fallback_message=message
             )
             return
-        
-        await message.answer(
-            get_text(['sources', 'youtube_checking']),
-            parse_mode="HTML"
-        )
-        
+
         # Извлекаем username из ссылки
         username = raw_input.strip()
         if 'youtube.com/@' in username:
@@ -148,401 +154,286 @@ async def process_channel_username(message: Message, state: FSMContext, session:
         elif 'youtube.com/c/' in username:
             username = username.split('youtube.com/c/')[-1].split('/')[0]
         elif 'youtu.be/' in username:
-            # Это ссылка на видео, а не на канал
-            await message.answer(
-                get_text(['sources', 'youtube_invalid_link']),
-                parse_mode="HTML",
-                reply_markup=get_cancel_kb_reply(get_text)
+            await update_or_send_menu(
+                bot=bot,
+                chat_id=message.from_user.id,
+                text=get_text(['sources', 'youtube_invalid_link']),
+                keyboard=get_cancel_kb(get_text),
+                state=state,
+                fallback_message=message
             )
             return
-        
-        # Используем НОВЫЙ простой парсер
+
+        # Используем простой парсер
         from core.parser.youtube_simple import get_parser
         youtube_parser = get_parser()
-        
-        # ===== ПЕРВАЯ ПОПЫТКА =====
+
         channel_data = await youtube_parser.get_channel_data(username)
-        
-        # ===== ЕСЛИ НЕ ПОЛУЧИЛОСЬ - ПОВТОР ЧЕРЕЗ 3 СЕКУНДЫ =====
         if not channel_data:
-            logger.info(f"⚠️ Первая попытка не удалась для @{username}, пробую через 3 сек...")
-            await message.answer(
-                get_text(['sources', 'youtube_retry'], username=username),
-                parse_mode="HTML"
-            )
             await asyncio.sleep(3)
             channel_data = await youtube_parser.get_channel_data(username)
-        
-        # ===== ЕСЛИ ВСЁ ЕЩЁ НЕТ - ОШИБКА =====
+
         if not channel_data:
-            await message.answer(
-                get_text(['sources', 'youtube_failed']),
-                parse_mode="HTML",
-                reply_markup=get_cancel_kb_reply(get_text)
+            await update_or_send_menu(
+                bot=bot,
+                chat_id=message.from_user.id,
+                text=get_text(['sources', 'youtube_failed']),
+                keyboard=get_cancel_kb(get_text),
+                state=state,
+                fallback_message=message
             )
             return
-        
+
         channel_id = channel_data['channel_id']
         channel_title = channel_data['channel_title']
         video_id = channel_data['video_id']
-        
+
         # Сохраняем все данные
+        source_global_id = f"yt_channel_{channel_id}"
         await state.update_data(
             source_type="youtube",
+            source_global_id=source_global_id,
             channel_id=channel_id,
             source_title=channel_title,
             youtube_username=username,
             feed_url=f"https://youtube.com/@{username}",
             last_video_id=video_id,
         )
-        
-        await message.answer(
-            get_text(['sources', 'youtube_found'],
-                    title=channel_title,
-                    username=username,
-                    video_id=video_id),
-            parse_mode="HTML",
-            reply_markup=get_confirm_channel_kb(get_text)
-        )
-        await state.set_state(AddChannel.confirm_channel)
-        return
-    
+
     # ========== ТЕЛЕГРАМ КАНАЛ ==========
-    # Проверяем, не пытаются ли ввести что-то опасное
-    if 'http://' in raw_input or 'https://' in raw_input:
-        # Если это ссылка - проверяем, что это Telegram
-        if 't.me' not in raw_input.lower() and 'telegram.org' not in raw_input.lower():
-            await message.answer(
-                get_text(['sources', 'telegram_invalid_domain']),
-                parse_mode="HTML",
-                reply_markup=get_cancel_kb_reply(get_text)
+    if not is_youtube:
+        # Проверяем, не пытаются ли ввести что-то опасное
+        if 'http://' in raw_input or 'https://' in raw_input:
+            if 't.me' not in raw_input.lower() and 'telegram.org' not in raw_input.lower():
+                await update_or_send_menu(
+                    bot=bot,
+                    chat_id=message.from_user.id,
+                    text=get_text(['sources', 'telegram_invalid_domain']),
+                    keyboard=get_cancel_kb(get_text),
+                    state=state,
+                    fallback_message=message
+                )
+                return
+
+        username = raw_input.strip('@').strip('/').split('/')[-1].lower()
+
+        if not USERNAME_REGEX.match(username):
+            if len(username) == 4 and re.match(r"^[a-zA-Z][a-zA-Z0-9_]{3}$", username):
+                logger.info(f"⚠️ Обнаружен короткий username (4 символа): @{username}")
+            else:
+                await update_or_send_menu(
+                    bot=bot,
+                    chat_id=message.from_user.id,
+                    text=get_text(['sources', 'telegram_invalid_username']),
+                    keyboard=get_cancel_kb(get_text),
+                    state=state,
+                    fallback_message=message
+                )
+                return
+
+        exists, error = await check_channel_exists(username)
+        if not exists:
+            await update_or_send_menu(
+                bot=bot,
+                chat_id=message.from_user.id,
+                text=get_text(['sources', 'telegram_not_found'], error=html.escape(error)),
+                keyboard=get_cancel_kb(get_text),
+                state=state,
+                fallback_message=message
             )
             return
-    
-    username = raw_input.strip('@').strip('/').split('/')[-1].lower()
-    
-    if not USERNAME_REGEX.match(username):
-        # Проверяем на короткие имена (как @mash - 4 символа)
-        if len(username) == 4 and re.match(r"^[a-zA-Z][a-zA-Z0-9_]{3}$", username):
-            logger.info(f"⚠️ Обнаружен короткий username (4 символа): @{username}")
-            # Разрешаем, но логируем
-        else:
-            await message.answer(
-                get_text(['sources', 'telegram_invalid_username']),
-                parse_mode="HTML",
-                reply_markup=get_cancel_kb_reply(get_text)
+
+        posts = await get_telegram_posts(username, first_only=True)
+        if not posts:
+            await update_or_send_menu(
+                bot=bot,
+                chat_id=message.from_user.id,
+                text=get_text(['sources', 'telegram_no_posts'], username=username),
+                keyboard=get_cancel_kb(get_text),
+                state=state,
+                fallback_message=message
             )
             return
-    
-    await message.answer(
-        get_text(['sources', 'telegram_checking']),
-        parse_mode="HTML"
-    )
-    
-    exists, error = await check_channel_exists(username)
-    if not exists:
-        await message.answer(
-            get_text(['sources', 'telegram_not_found'], error=html.escape(error)),
-            parse_mode="HTML",
-            reply_markup=get_cancel_kb_reply(get_text)
+
+        first_post = posts[0]
+        first_post_id = int(first_post['post_id'])
+        title = await get_channel_title(username) or f"Канал @{username}"
+
+        # Сохраняем все данные
+        source_global_id = f"tg_channel_{username}"
+        await state.update_data(
+            source_type="telegram",
+            source_global_id=source_global_id,
+            source_username=username,
+            source_title=title,
+            first_post=first_post,
+            first_post_id=first_post_id
         )
-        return
-    
-    posts = await get_telegram_posts(username, first_only=True)
-    if not posts:
-        await message.answer(
-            get_text(['sources', 'telegram_no_posts'], username=username),
-            parse_mode="HTML",
-            reply_markup=get_cancel_kb_reply(get_text)
-        )
-        return
-    
-    first_post = posts[0]
-    first_post_id = int(first_post['post_id'])
-    title = await get_channel_title(username) or f"Канал @{username}"
-    
-    await state.update_data(
-        source_type="telegram",
-        source_username=username,
-        source_title=title,
-        first_post=first_post,
-        first_post_id=first_post_id
-    )
-    
-    await message.answer(
-        get_text(['sources', 'telegram_found'],
-                username=username,
-                title=html.escape(title),
-                post_id=first_post_id),
-        parse_mode="HTML",
-        reply_markup=get_confirm_channel_kb(get_text)
-    )
-    await state.set_state(AddChannel.confirm_channel)
+
+    # ========== ПРОВЕРКА ГРУПП И ОТПРАВКА ВЫБОРА ТЕМЫ ==========
+    await process_channel_after_check(message, state, session, get_text, bot, is_youtube)
 
 
-@router.callback_query(AddChannel.confirm_channel, F.data == "confirm_add_channel")
-async def confirm_add_channel(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
-    """Подтвердить добавление канала - для Telegram и YouTube"""
-    
-    await callback.answer()
-    
+async def process_channel_after_check(message: Message, state: FSMContext, session: AsyncSession, get_text: callable, bot: Bot, is_youtube: bool):
+    """Проверить группы и отправить выбор темы."""
     data = await state.get_data()
     source_type = data.get("source_type")
+    source_global_id = data.get("source_global_id")
     
-    if not source_type:
-        await callback.message.edit_text(
-            get_text(['sources', 'error_no_type']),
-            parse_mode="HTML"
+    # Получаем все назначения
+    destinations = await get_user_destinations(message.from_user.id, session, only_existing_topics=False)
+    if not destinations:
+        await update_or_send_menu(
+            bot=bot,
+            chat_id=message.from_user.id,
+            text=get_text(['sources', 'error_no_groups']),
+            keyboard=get_main_menu_inline(get_text),
+            state=state,
+            fallback_message=message
         )
         await state.clear()
         return
-    
-    try:
-        source_title = data.get("source_title")
-        
-        if source_type == "telegram":
-            username = data.get("source_username")
-            if not username:
-                await callback.message.edit_text(
-                    get_text(['sources', 'error_no_username']),
-                    parse_mode="HTML"
-                )
-                await state.clear()
-                return
-            
-            source_global_id = f"tg_channel_{username}"
-            first_post_id = data.get("first_post_id")
-            first_post = data.get("first_post")
-            
-            await callback.message.edit_text(
-                get_text(['sources', 'add_saving_telegram'],
-                        username=username,
-                        post_id=first_post_id),
-                parse_mode="HTML"
-            )
-            
-        elif source_type == "youtube":
-            channel_id = data.get("channel_id")
-            username = data.get("youtube_username")
-            channel_language = data.get("channel_language", 'en')
-            
-            if not channel_id:
-                await callback.message.edit_text(
-                    get_text(['sources', 'error_no_channel_id']),
-                    parse_mode="HTML"
-                )
-                await state.clear()
-                return
-            
-            source_global_id = f"yt_channel_{channel_id}"
-            feed_url = data.get("feed_url")
-            last_video_id = data.get("last_video_id")
-            last_video_timestamp = data.get("last_video_timestamp")
-            last_video = data.get("last_video")
-            
-            await callback.message.edit_text(
-                get_text(['sources', 'add_saving_youtube'],
-                        username=username,
-                        video_id=last_video_id),
-                parse_mode="HTML"
-            )
-        
-        # ========== 2. СОЗДАЁМ ИСТОЧНИК ==========
-        if source_type == "telegram":
-            source, created = await get_or_create_content_source(
-                session=session,
-                source_global_id=source_global_id,
-                source_type="telegram",
-                telegram_username=username,
-                channel_title=source_title,
-                feed_url=None
-            )
 
-            source.last_successful_post_id = first_post_id
-            source.last_successful_post_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Проверяем темы
+    check_text = get_text(['topic_check', 'message'])
+    alive_topics, deleted_topics, total = await verify_user_topics(
+        message.from_user.id,
+        bot,
+        session,
+        check_text
+    )
 
-        elif source_type == "youtube":
-            source, created = await get_or_create_content_source(
-                session=session,
-                source_global_id=source_global_id,
-                source_type="youtube",
-                feed_url=feed_url,
-                youtube_username=username,
-                channel_title=source_title
-            )
+    # Фильтруем destinations
+    alive_topic_identifiers = {t.topic_identifier for t in alive_topics}
+    filtered_destinations = [
+        d for d in destinations
+        if d.get("topic_identifier") in alive_topic_identifiers
+    ]
 
-            # Сохраняем новые поля для YouTube HTML парсера
-            source.youtube_username = username
-            #source.channel_language = channel_language
-            source.last_video_id = last_video_id
-            #source.last_video_timestamp = last_video_timestamp
-
-            # Числовой хеш для обратной совместимости
-            video_id_num = int(hashlib.md5(last_video_id.encode()).hexdigest()[:15], 16) % (10**15)
-            source.last_successful_post_id = video_id_num
-            source.last_successful_post_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
-
-        source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
-        
-        # 🔥 КОММИТИМ В БД
-        await session.commit()
-        logger.info(f"✅ Установлен last_successful_post_id для {source_global_id}")
-        
-        # 🔥 ОБНОВЛЯЕМ REDIS (только для Telegram)
-        if source_type == "telegram":
-            await set_cached_last_post(username, first_post_id)
-            logger.info(f"✅ Redis кеш обновлён для @{username}: {first_post_id}")
-        
-        # ========== 3. ЛИЧНАЯ ПОДПИСКА ==========
-        await create_user_channel_subscription(
-            session=session,
-            user_id=callback.from_user.id,
+    # Сохраняем данные
+    if source_type == "telegram":
+        username = data.get("source_username")
+        source_global_id = f"tg_channel_{username}"
+        await state.update_data(
             source_global_id=source_global_id,
-            custom_title=source_title,
-            is_active=True
+            destinations=filtered_destinations,
+            first_post=data.get("first_post"),
+            first_post_id=data.get("first_post_id"),
+            source_title=data.get("source_title"),
+            source_username=username,
+            source_type="telegram",
+            source_created_now=True
         )
-        
-        # ========== 4. ВЫБОР ГРУППЫ/ТЕМЫ ==========
-        # Получаем все назначения (пока со всеми темами)
-        destinations = await get_user_destinations(callback.from_user.id, session, only_existing_topics=False)
-
-        if not destinations:
-            await callback.message.edit_text(
-                get_text(['sources', 'error_no_groups']),
-                parse_mode="HTML"
-            )
-            await state.clear()
-            return
-
-        # Отправляем служебное сообщение
-        status_msg = None
-        try:
-            status_msg = await callback.message.answer(
-                "⏳ Обновляем списки, минуточку....",
-                disable_notification=True
-            )
-        except Exception:
-            pass
-
-        # Получаем текст проверки из локализации
-        check_text = get_text(['topic_check', 'message'])
-
-        # Проверяем темы и фильтруем список
-        from core.utils.topic_checker import verify_user_topics
-        # ✅ Кэш теперь не блокирует данные — получаем темы из БД
-        alive_topics, deleted_topics, total = await verify_user_topics(
-            callback.from_user.id,
-            callback.bot,
-            session,
-            check_text
+    elif source_type == "youtube":
+        channel_id = data.get("channel_id")
+        source_global_id = f"yt_channel_{channel_id}"
+        await state.update_data(
+            source_global_id=source_global_id,
+            destinations=filtered_destinations,
+            first_video=data.get("last_video"),
+            first_video_id=data.get("last_video_id"),
+            source_title=data.get("source_title"),
+            channel_id=channel_id,
+            youtube_username=data.get("youtube_username"),
+            source_type="youtube",
+            source_created_now=True
         )
 
-        # Превращаем служебное сообщение в финальное
-        if status_msg:
-            try:
-                if deleted_topics:
-                    await status_msg.edit_text(
-                        f"📌 Выберите тему" #(скрыто {len(deleted_topics)} удалённых)"
-                    )
-                else:
-                    await status_msg.edit_text("📌 Выберите тему")
-            except:
-                pass
+    # Отправляем выбор темы
+    inline_kb = get_destinations_inline_kb(filtered_destinations, page=0, get_text=get_text)
 
-        # Фильтруем destinations, оставляя только темы из alive_topics
-        alive_topic_identifiers = {t.topic_identifier for t in alive_topics}
-        filtered_destinations = [
-            d for d in destinations
-            if d.get("topic_identifier") in alive_topic_identifiers
-        ]
+    # 1. Удаляем старое сообщение через 2с
+    await delete_menu_message_with_delay(
+        bot=bot,
+        chat_id=message.from_user.id,
+        state=state,
+        delay=2
+    )
 
-        # Сохраняем данные для следующего шага
-        if source_type == "telegram":
-            await state.update_data(
-                source_global_id=source_global_id,
-                destinations=filtered_destinations,
-                first_post=first_post,
-                first_post_id=first_post_id,
-                source_title=source_title,
-                source_username=username,
-                source_type="telegram",
-                source_created_now=created  # ✅ Флаг: источник создан в этом сеансе
-            )
-        elif source_type == "youtube":
-            await state.update_data(
-                source_global_id=source_global_id,
-                destinations=filtered_destinations,
-                first_video=last_video,
-                first_video_id=last_video_id,
-                source_title=source_title,
-                channel_id=channel_id,
-                youtube_username=username,
-                source_type="youtube",
-                source_created_now=created  # ✅ Флаг: источник создан в этом сеансе
-            )
+    # 2. Отправляем НОВОЕ сообщение с выбором темы
+    new_msg = await bot.send_message(
+        chat_id=message.from_user.id,
+        text=get_text(['sources', 'add_saved']),
+        parse_mode="HTML",
+        reply_markup=inline_kb
+    )
 
-        # ✅ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ С КЛАВИАТУРОЙ
-        # Reply клавиатура с одной кнопкой "Отмена"
-        reply_kb = get_destinations_menu(filtered_destinations, get_text)
-        # Inline клавиатура с пагинацией по группам
-        inline_kb = get_destinations_inline_kb(filtered_destinations, page=0, get_text=get_text)
+    # 3. Сохраняем новый message_id
+    await state.update_data({MENU_MESSAGE_ID_KEY: new_msg.message_id})
+    await state.set_state(AddChannel.choose_destination)
 
-        await callback.message.answer(
-            get_text(['sources', 'add_saved']),
-            parse_mode="HTML",
-            reply_markup=inline_kb
-        )
-        # Отправляем отдельное сообщение с Reply кнопкой "Отмена"
-        await callback.message.answer(
-            get_text(['keyboards', 'destinations', 'placeholder']),
-            reply_markup=reply_kb
-        )
 
-        await state.set_state(AddChannel.choose_destination)
-        
-    except Exception as e:
-        await session.rollback()
-        logger.error(f"❌ Ошибка добавления канала: {e}", exc_info=True)
-        await callback.message.edit_text(
-            get_text(['sources', 'error_general'], error=str(e)[:100]), 
-            parse_mode="HTML"
-        )
-        await state.clear()
-
-@router.callback_query(AddChannel.confirm_channel, F.data == "cancel_add_channel")
-async def cancel_add_channel(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
-    """Отменить добавление канала и удалить созданный источник (если он новый)."""
+async def cancel_add_channel_flow(callback, bot: Bot, chat_id: int, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Отмена добавления канала — возврат в главное меню."""
     from core.models import ContentSource
     from sqlalchemy import delete
-    
-    await callback.answer()
-    
-    # Получаем данные из состояния
+
     data = await state.get_data()
     source_global_id = data.get("source_global_id")
     source_created_now = data.get("source_created_now", False)
-    
-    # Если источник был создан в этом сеансе — удаляем его
+
     if source_created_now and source_global_id:
         try:
             stmt = delete(ContentSource).where(ContentSource.source_global_id == source_global_id)
             await session.execute(stmt)
             await session.commit()
-            logger.info(f"🗑️ Удалён источник {source_global_id} после отмены пользователем")
+            logger.info(f"🗑️ Удалён источник {source_global_id} после отмены")
         except Exception as e:
             await session.rollback()
-            logger.error(f"❌ Ошибка удаления источника {source_global_id}: {e}")
-    
-    await callback.message.edit_text(
-        get_text(['sources', 'add_cancelled']),
-        parse_mode="HTML"
+            logger.error(f"❌ Ошибка удаления источника: {e}")
+
+    # Сохраняем текущий message_id перед очисткой
+    data = await state.get_data()
+    menu_message_id = data.get(MENU_MESSAGE_ID_KEY)
+
+    # Просто обновляем текущее сообщение на главное меню
+    await update_or_send_menu(
+        bot=bot,
+        chat_id=chat_id,
+        text=get_text(['common', 'menu']),
+        keyboard=get_main_menu_inline(get_text),
+        state=state
     )
+
+    # Очищаем состояние, КРОМЕ message_id
     await state.clear()
-    await callback.message.answer(
-        get_text(['common', 'menu']),
-        parse_mode="HTML",
-        reply_markup=get_main_menu(get_text)
+    
+    # Восстанавливаем message_id
+    if menu_message_id:
+        await state.update_data({MENU_MESSAGE_ID_KEY: menu_message_id})
+
+
+# ========== CALLBACK HANDLERS ДЛЯ WAITING_FOR_USERNAME ==========
+@router.callback_query(AddChannel.waiting_for_username, F.data == "cancel_add_channel")
+async def cancel_channel_username(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Отмена добавления канала по Inline-кнопке — возврат в главное меню."""
+    await callback.answer()
+
+    # Сохраняем текущий message_id перед очисткой
+    data = await state.get_data()
+    menu_message_id = data.get(MENU_MESSAGE_ID_KEY)
+
+    # Просто обновляем текущее сообщение на главное меню
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['common', 'menu']),
+        keyboard=get_main_menu_inline(get_text),
+        state=state
     )
+
+    # Очищаем состояние, КРОМЕ message_id
+    await state.clear()
+    
+    # Восстанавливаем message_id
+    if menu_message_id:
+        await state.update_data({MENU_MESSAGE_ID_KEY: menu_message_id})
+
+
+# ========== СТАРЫЕ ХЕНДЛЕРЫ БОЛЬШЕ НЕ ИСПОЛЬЗУЮТСЯ ==========
+# confirm_add_channel и cancel_add_channel удалены, т.к. теперь используется
+# process_channel_after_check и cancel_add_channel_flow
+# =======================================================================
 
 
 # ========== INLINE CALLBACK HANDLERS FOR DESTINATIONS ==========
@@ -568,44 +459,41 @@ async def process_destination_inline(callback: CallbackQuery, state: FSMContext,
             break
     
     if not chosen:
-        await callback.message.edit_text(
-            get_text(['sources', 'destination_not_found']),
-            parse_mode="HTML"
+        await update_or_send_menu(
+            bot=callback.bot,
+            chat_id=callback.from_user.id,
+            text=get_text(['sources', 'destination_not_found']),
+            keyboard=get_main_menu_inline(get_text),
+            state=state
         )
         await state.clear()
         return
-    
-    # Удаляем сообщение с inline клавиатурой
-    try:
-        await callback.message.delete()
-    except:
-        pass
-    
-    # Обрабатываем выбор
+
+    # Обрабатываем выбор (без удаления сообщения — используем update_or_send_menu)
     await finalize_destination_choice(callback, chosen, data, state, session, get_text)
 
 
 @router.callback_query(AddChannel.choose_destination, F.data.startswith("dest_page:"))
 async def navigate_destinations(callback: CallbackQuery, state: FSMContext, get_text: callable):
     """Навигация по страницам destinations"""
-    
+
     page = int(callback.data.split(":", 1)[1])
-    
+
     data = await state.get_data()
     destinations = data.get("destinations", [])
-    
+
     # Обновляем inline клавиатуру с новой страницей
     inline_kb = get_destinations_inline_kb(destinations, page=page, get_text=get_text)
-    
-    try:
-        await callback.message.edit_text(
-            get_text(['sources', 'add_saved']),
-            parse_mode="HTML",
-            reply_markup=inline_kb
-        )
-    except Exception as e:
-        logger.warning(f"⚠️ Не удалось обновить клавиатуру destinations: {e}")
-    
+
+    # Обновляем текущее сообщение через update_or_send_menu
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['sources', 'add_saved']),
+        keyboard=inline_kb,
+        state=state
+    )
+
     await callback.answer()
 
 
@@ -687,12 +575,14 @@ async def finalize_destination_choice(
         )
         existing_result = await session.execute(existing_stmt)
         existing_assignment = existing_result.scalar_one_or_none()
-        
+
         if existing_assignment:
-            await callback.message.answer(
-                get_text(['sources', 'destination_already_exists'], destination=chosen['display_name']),
-                parse_mode="HTML",
-                reply_markup=get_main_menu(get_text)
+            await update_or_send_menu(
+                bot=callback.bot,
+                chat_id=callback.from_user.id,
+                text=get_text(['sources', 'destination_already_exists'], destination=chosen['display_name']),
+                keyboard=get_main_menu_inline(get_text),
+                state=state
             )
             await state.clear()
             return
@@ -784,44 +674,76 @@ async def finalize_destination_choice(
                     logger.error(f"❌ Ошибка отправки первого видео: {send_error}")
         
         # ========== 6. УСПЕХ! ==========
+        # 1. Удаляем старое навигационное сообщение ЧЕРЕЗ 2 СЕКУНДЫ
+        await delete_menu_message_with_delay(
+            bot=callback.bot,
+            chat_id=callback.from_user.id,
+            state=state,
+            delay=2
+        )
+
+        # 2. Отправляем НОВОЕ сообщение с результатом
         if source_type == "telegram":
             username = data.get("source_username")
             first_post_id = data.get("first_post_id")
-            await callback.message.answer(
-                get_text(['sources', 'destination_success_telegram'],
+            result_msg = await callback.bot.send_message(
+                chat_id=callback.from_user.id,
+                text=get_text(['sources', 'destination_success_telegram'],
                         username=username,
                         post_id=first_post_id,
-                        destination=chosen['display_name']),
-                parse_mode="HTML",
-                reply_markup=get_main_menu(get_text)
+                        destination=chosen['display_name'])
             )
+            logger.info(f"📤 Отправлено сообщение о результате: {result_msg.message_id}")
             logger.info(f"✅ Канал @{username} добавлен, отправлен 1 пост (ID: {first_post_id})")
-        
+
         elif source_type == "youtube":
             username = data.get("youtube_username")
             first_video_id = data.get("first_video_id")
-            await callback.message.answer(
-                get_text(['sources', 'destination_success_youtube'],
+            result_msg = await callback.bot.send_message(
+                chat_id=callback.from_user.id,
+                text=get_text(['sources', 'destination_success_youtube'],
                         username=username,
                         video_id=first_video_id,
-                        destination=chosen['display_name']),
-                parse_mode="HTML",
-                reply_markup=get_main_menu(get_text)
+                        destination=chosen['display_name'])
             )
+            logger.info(f"📤 Отправлено сообщение о результате: {result_msg.message_id}")
             logger.info(f"✅ YouTube канал @{username} добавлен, отправлено 1 видео")
-    
+
+        # 3. Отправляем НОВОЕ главное меню
+        main_menu_msg = await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text=get_text(['common', 'menu']),
+            parse_mode="HTML",
+            reply_markup=get_main_menu_inline(get_text)
+        )
+        logger.info(f"📤 Отправлено новое главное меню: {main_menu_msg.message_id}")
+
+        # 4. Сохраняем новый message_id в состоянии
+        await state.update_data({MENU_MESSAGE_ID_KEY: main_menu_msg.message_id})
+
     except Exception as e:
         await session.rollback()
         logger.error(f"❌ Ошибка в finalize_destination_choice: {e}", exc_info=True)
-        await callback.message.answer(
-            get_text(['sources', 'destination_error'], error=str(e)[:200]),
-            parse_mode="HTML",
-            reply_markup=get_main_menu(get_text)
+        await update_or_send_menu(
+            bot=callback.bot,
+            chat_id=callback.from_user.id,
+            text=get_text(['sources', 'destination_error'], error=str(e)[:200]),
+            keyboard=get_main_menu_inline(get_text),
+            state=state
         )
-    
+
     finally:
+        # Сохраняем message_id перед очисткой!
+        data = await state.get_data()
+        menu_message_id = data.get(MENU_MESSAGE_ID_KEY)
+        
         await state.clear()
-        logger.info(f"✅ Состояние очищено")
+        
+        # Восстанавливаем message_id
+        if menu_message_id:
+            await state.update_data({MENU_MESSAGE_ID_KEY: menu_message_id})
+        
+        logger.info(f"✅ Состояние очищено, message_id={menu_message_id} сохранён")
 
 
 @router.message(AddChannel.choose_destination)
@@ -850,10 +772,14 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
             except Exception as e:
                 await session.rollback()
                 logger.error(f"❌ Ошибка удаления источника {source_global_id}: {e}")
-        
-        await message.answer(
-            get_text(['sources', 'add_cancelled']),
-            reply_markup=get_main_menu(get_text)
+
+        await update_or_send_menu(
+            bot=message.bot,
+            chat_id=message.from_user.id,
+            text=get_text(['sources', 'add_cancelled']),
+            keyboard=get_main_menu_inline(get_text),
+            state=state,
+            fallback_message=message
         )
         await state.clear()
         # Удаляем предыдущее сообщение с inline клавиатурой
@@ -863,10 +789,14 @@ async def process_destination_choice(message: Message, state: FSMContext, sessio
             pass
         return
 
-    # Игнорируем другие сообщения
-    await message.answer(
-        get_text(['sources', 'destination_use_inline']),
-        parse_mode="HTML"
+    # Игнорируем другие сообщения — напоминаем использовать inline-кнопки
+    await update_or_send_menu(
+        bot=message.bot,
+        chat_id=message.from_user.id,
+        text=get_text(['sources', 'destination_use_inline']),
+        keyboard=get_main_menu_inline(get_text),
+        state=state,
+        fallback_message=message
     )
 
 
@@ -893,8 +823,12 @@ async def navigate_sources(callback: CallbackQuery, session: AsyncSession, get_t
     groups = await get_user_groups(user_id, session, only_existing_topics=True)
 
     if not groups:
-        await callback.message.edit_text(
-            get_text(['sources', 'error_no_groups_short'])
+        await update_or_send_menu(
+            bot=callback.bot,
+            chat_id=callback.from_user.id,
+            text=get_text(['sources', 'error_no_groups_short']),
+            keyboard=get_main_menu_inline(get_text),
+            state=state
         )
         await callback.answer()
         return
@@ -1036,20 +970,23 @@ async def navigate_sources(callback: CallbackQuery, session: AsyncSession, get_t
         text += get_text(['sources', 'list_more'], count=total_sources - sources_shown)
     
     text += get_text(['sources', 'list_total'], total=total_sources, groups=len(grouped_data))
-    
+
     # Собираем плоский список для кнопок
     flat_sources = []
     for chat_id, chat_data in grouped_data.items():
         for topic_id, topic_data in chat_data["topics"].items():
             for source in topic_data["sources"]:
                 flat_sources.append(source)
+
+    # Обновляем ВСЁ сообщение через update_or_send_menu
+    from bot.utils.menu_message import update_or_send_menu
     
-    # Обновляем ВСЁ сообщение
-    await callback.message.edit_text(
-        text,
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-        reply_markup=get_source_list_kb(flat_sources, page=page, get_text=get_text)
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=text,
+        keyboard=get_source_list_kb(flat_sources, topic_title="Источники", page=page, get_text=get_text),
+        state=state
     )
     await callback.answer()
 
@@ -1124,11 +1061,12 @@ async def delete_source_subscription(callback: CallbackQuery, session: AsyncSess
 
 async def update_sources_list(message: Message, session: AsyncSession, user_id: int, page: int = 0, get_text: callable = None):
     """Вспомогательная функция для обновления списка источников"""
-    
+
     # Получаем группы пользователя
     groups = await get_user_groups(user_id, session)
     if not groups:
-        await message.edit_text(
+        # Для вспомогательной функции без state — используем простое сообщение
+        await message.answer(
             get_text(['sources', 'error_no_groups_short']) if get_text else "❌ Нет активных групп"
         )
         return
@@ -1226,7 +1164,7 @@ async def update_sources_list(message: Message, session: AsyncSession, user_id: 
                 break
                 
             topic_has_sources = False
-            topic_text = "    ─────────────────\n"
+            topic_text = "    ──────────��──────\n"
             topic_icon = "💬Топик - " if topic_data["thread_id"] is None else "🗨️Топик - "
             topic_text += f"    {topic_icon} <b>{html.escape(topic_data['name'])}</b>\n"
             
@@ -1274,12 +1212,14 @@ async def update_sources_list(message: Message, session: AsyncSession, user_id: 
         for topic_id, topic_data in chat_data["topics"].items():
             for source in topic_data["sources"]:
                 flat_sources.append(source)
-    
-    # Обновляем сообщение
-    await message.edit_text(
-        text,
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-        reply_markup=get_source_list_kb(flat_sources, page=page, get_text=get_text)
-    )
 
+    # Обновляем сообщение через update_or_send_menu
+    from bot.utils.menu_message import update_or_send_menu
+    
+    await update_or_send_menu(
+        bot=message.bot,
+        chat_id=message.from_user.id,
+        text=text,
+        keyboard=get_source_list_kb(flat_sources, topic_title="Источники", page=page, get_text=get_text),
+        state=state
+    )

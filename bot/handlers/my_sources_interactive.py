@@ -12,12 +12,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models import (
-    ContentSource, SourceSubscription, TopicSourceAssignment, 
+    ContentSource, SourceSubscription, TopicSourceAssignment,
     ManagedGroup, GroupTopic
 )
 from core.services.destination_service import get_user_groups
 from core.utils.topic_checker import verify_user_topics
 from bot.states import MySources
+from bot.utils.menu_message import update_or_send_menu, MENU_MESSAGE_ID_KEY, delete_menu_message_with_delay
 
 logger = logging.getLogger(__name__)
 
@@ -26,37 +27,155 @@ router = Router()
 
 # ========== ГЛАВНАЯ КОМАНДА /list ==========
 @router.message(F.command.in_(["list", "mysources"]))
-@router.message(F.text.in_(["Мои источники", "My sources", "📚 Мои источники"]))
-async def cmd_my_sources_interactive(message: Message, session: AsyncSession, bot: Bot, state: FSMContext, get_text: callable):
-    """Показать источники с интерактивной навигацией"""
-    logger.info(f"📚 /list вызван пользователем {message.from_user.id}")
+async def cmd_my_sources_command(message: Message, session: AsyncSession, bot: Bot, state: FSMContext, get_text: callable = None):
+    """Показать источники с интерактивной навигацией (обработчик команды /list)"""
     user_id = message.from_user.id
+    is_bot = message.from_user.is_bot
+    username = message.from_user.username
+    full_name = message.from_user.full_name
+    chat_id = message.chat.id
+    chat_type = message.chat.type
+    
+    logger.info(f"📚 КОМАНДА /list получена:")
+    logger.info(f"   - from_user.id: {user_id}")
+    logger.info(f"   - from_user.is_bot: {is_bot}")
+    logger.info(f"   - from_user.username: @{username}")
+    logger.info(f"   - from_user.full_name: {full_name}")
+    logger.info(f"   - chat.id: {chat_id}")
+    logger.info(f"   - chat.type: {chat_type}")
+    logger.info(f"   - bot.id: {bot.id}")
+    
+    # Проверка: если бот тестирует сам себя
+    if user_id == bot.id:
+        logger.error(f"❌ Бот {user_id} пытается вызвать /list - это неправильно!")
+        logger.error(f"💡 ОТКРОЙТЕ БОТА С ВАШЕГО ЛИЧНОГО АККАУНТА TELEGRAM (не бота!)")
+        logger.error(f"💡 Найдите @MyAggryBot в списке чатов и напишите ему напрямую")
+        return
+    
+    logger.info(f"📚 get_text доступен: {get_text is not None}")
+    
+    # Если get_text не передан, создаём fallback функцию
+    if get_text is None:
+        logger.warning("⚠️ get_text не передан, используем fallback")
+        def get_text(keys, **kwargs):
+            fallback_texts = {
+                'topic_check': {'message': '🤗 Проверка...'},
+                'common': {'menu': '🏠 Главное меню'},
+                'keyboards': {
+                    'main_menu': {'my_sources': '📚 Мои источники'},
+                    'back_to_main': '🔙 В главное меню',
+                    'groups_menu': {'prev': '◀️', 'next': '▶️', 'cancel': '❌', 'dot': '.'}
+                }
+            }
+            try:
+                result = fallback_texts
+                for key in keys:
+                    result = result[key]
+                return result
+            except (KeyError, TypeError):
+                return str(keys)
 
+    await _process_my_sources(message, session, bot, state, get_text)
+
+
+@router.message(F.text.in_([
+    "📚 Мои источники", "📚 My sources", "📚 Мої джерела", "📚 Маё крыніцы",
+    "📚 Источники", "Мои источники", "My sources", "Інші джерела", "Маё крыніцы"
+]))
+async def cmd_my_sources_text(message: Message, session: AsyncSession, bot: Bot, state: FSMContext, get_text: callable = None):
+    """Показать источники с интерактивной навигацией (обработчик текстовой кнопки)"""
+    user_id = message.from_user.id
+    logger.info(f"📚 ТЕКСТОВАЯ КНОПКА нажата пользователем {user_id}")
+    logger.info(f"📚 get_text доступен: {get_text is not None}")
+    
+    # Если get_text не передан, создаём fallback функцию
+    if get_text is None:
+        logger.warning("⚠️ get_text не передан, используем fallback")
+        def get_text(keys, **kwargs):
+            fallback_texts = {
+                'topic_check': {'message': '🤗 Проверка...'},
+                'common': {'menu': '🏠 Главное меню'},
+                'keyboards': {
+                    'main_menu': {'my_sources': '📚 Мои источники'},
+                    'back_to_main': '🔙 В главное меню',
+                    'groups_menu': {'prev': '◀️', 'next': '▶️', 'cancel': '❌', 'dot': '.'}
+                }
+            }
+            try:
+                result = fallback_texts
+                for key in keys:
+                    result = result[key]
+                return result
+            except (KeyError, TypeError):
+                return str(keys)
+
+    await _process_my_sources(message, session, bot, state, get_text)
+
+
+async def _process_my_sources(message: Message, session: AsyncSession, bot: Bot, state: FSMContext, get_text: callable):
+    """Общая логика для /list и кнопки "Мои источники" (для сообщений)"""
+    user_id = message.from_user.id
+    await _process_my_sources_internal(user_id, message, session, bot, state, get_text)
+
+
+async def _process_my_sources_from_callback(callback: CallbackQuery, session: AsyncSession, state: FSMContext, get_text: callable):
+    """Общая логика для кнопки "Мои источники" (для callback query)"""
+    # ВАЖНО: берём user_id из callback.from_user, а не из callback.message!
+    user_id = callback.from_user.id
+    # НЕ передаём callback.message как fallback — используем только message_id из состояния
+    await _process_my_sources_internal(user_id, None, session, callback.bot, state, get_text)
+
+
+async def _process_my_sources_internal(user_id: int, message: Message, session: AsyncSession, bot: Bot, state: FSMContext, get_text: callable):
+    """Внутренняя функция обработки — принимает user_id явно"""
+    logger.info(f"📚 _process_my_sources_internal для пользователя {user_id}")
+    logger.info(f"   - bot type: {type(bot)}")
+    logger.info(f"   - session type: {type(session)}")
+    
     # Проверяем темы
     check_text = get_text(['topic_check', 'message'])
-    logger.info(f"🔍 Проверка тем...")
+    logger.info(f"🔍 Проверка тем... {check_text}")
+    logger.info(f"   - Вызов verify_user_topics(user_id={user_id}, bot={type(bot)}, session={type(session)})")
     await verify_user_topics(user_id, bot, session, check_text)
+    logger.info(f"✅ verify_user_topics завершён")
 
-    # Получаем группы
+    # Получаем группы - ПРЯМОЙ ЗАПРОС для отладки
+    from sqlalchemy import select
+    from core.models import ManagedGroup
+    
+    # Проверяем ВСЕ группы в БД
+    all_groups_stmt = select(ManagedGroup)
+    all_groups_result = await session.execute(all_groups_stmt)
+    all_groups = all_groups_result.scalars().all()
+    logger.info(f"📊 ВСЕ группы в БД: {len(all_groups)}")
+    for g in all_groups:
+        logger.info(f"   - Группа: {g.telegram_chat_title}, creator_id={g.creator_id}, is_bot_active={g.is_bot_active_in_group}")
+    
+    # Получаем группы пользователя
     groups = await get_user_groups(user_id, session, only_existing_topics=True)
+    logger.info(f"📊 Найдено групп для пользователя {user_id}: {len(groups) if groups else 0}")
+    for g in groups:
+        logger.info(f"   - {g['chat_title']}, chat_id={g['chat_id']}")
 
     if not groups:
-        await message.answer(
-            "❌ <b>Нет активных групп</b>\n\n"
-            "Сначала активируйте группу командой /activ",
-            parse_mode="HTML"
+        logger.warning(f"⚠️ У пользователя {user_id} нет групп. Возможно, вы тестируете с аккаунта бота?")
+        logger.warning(f"💡 ОТКРОЙТЕ БОТА С ВАШЕГО ЛИЧНОГО АККАУНТА (не бота!)")
+
+        text = "❌ <b>Нет активных групп</b>\n\nСначала активируйте группу командой /activ"
+
+        # Пробуем отправить с клавиатурой главного меню
+        from bot.keyboards import get_main_menu_inline
+        keyboard = get_main_menu_inline(get_text)
+
+        # НЕ передаём fallback_message — используем только message_id из состояния
+        await update_or_send_menu(
+            bot=bot,
+            chat_id=user_id,
+            text=text,
+            keyboard=keyboard,
+            state=state
         )
         return
-
-    # Удаляем предыдущее сообщение с клавиатурой, если есть
-    data = await state.get_data()
-    old_message_id = data.get('sources_message_id')
-    if old_message_id:
-        try:
-            await bot.delete_message(chat_id=user_id, message_id=old_message_id)
-            logger.info(f"🗑️ Удалено старое сообщение {old_message_id}")
-        except Exception as e:
-            logger.debug(f"⚠️ Не удалось удалить старое сообщение: {e}")
 
     # Сохраняем в состояние
     await state.update_data(user_id=user_id, groups=groups, groups_page=0)
@@ -66,7 +185,7 @@ async def cmd_my_sources_interactive(message: Message, session: AsyncSession, bo
     from bot.keyboards import get_groups_inline_kb
 
     # Формируем клавиатуру через get_groups_inline_kb
-    keyboard = get_groups_inline_kb(groups=groups, page=0, page_size=5, get_text=get_text, back_callback="list_cancel")
+    keyboard = get_groups_inline_kb(groups=groups, page=0, page_size=5, get_text=get_text, back_callback="back_to_main")
 
     text = (
         f"<b>📚 Мои источники</b>\n\n"
@@ -74,28 +193,15 @@ async def cmd_my_sources_interactive(message: Message, session: AsyncSession, bo
         f"<i>Выберите группу для просмотра тем:</i>"
     )
 
-    # Отправляем сообщение и сохраняем message_id
-    try:
-        sent_message = await message.answer(
-            text,
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
-        # Сохраняем message_id для последующего удаления
-        await state.update_data(sources_message_id=sent_message.message_id)
-        
-        # Удаляем исходное сообщение команды
-        try:
-            await message.delete()
-        except:
-            pass
-    except Exception as e:
-        logger.warning(f"⚠️ Не удалось отправить сообщение: {e}")
-        await message.answer(
-            text,
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
+    # Отправляем/обновляем сообщение через update_or_send_menu
+    # НЕ передаём fallback_message — используем только message_id из состояния
+    await update_or_send_menu(
+        bot=bot,
+        chat_id=user_id,
+        text=text,
+        keyboard=keyboard,
+        state=state
+    )
 
     await state.set_state(MySources.viewing_groups)
 
@@ -106,20 +212,20 @@ async def on_group_selected(callback: CallbackQuery, session: AsyncSession, stat
     """Пользователь выбрал группу — показываем топики"""
     chat_id = int(callback.data.split(":")[1])
     logger.info(f"🔍 Выбрана группа: {chat_id}")
-    
+
     data = await state.get_data()
     user_id = data.get('user_id')
     groups = data.get('groups', [])
-    
+
     logger.info(f"📊 Данные из состояния: user_id={user_id}, groups={len(groups) if groups else 0}")
-    
+
     # Находим выбранную группу
     group = next((g for g in groups if g["chat_id"] == chat_id), None)
     if not group:
         logger.warning(f"❌ Группа {chat_id} не найдена в состоянии")
         await callback.answer("❌ Группа не найдена", show_alert=True)
         return
-    
+
     # Получаем топики группы
     topics_stmt = select(GroupTopic).where(
         GroupTopic.telegram_chat_id == chat_id,
@@ -127,7 +233,7 @@ async def on_group_selected(callback: CallbackQuery, session: AsyncSession, stat
     )
     topics_result = await session.execute(topics_stmt)
     topics = list(topics_result.scalars().all())
-    
+
     logger.info(f"📊 Топики из БД: {[(t.topic_name, t.topic_identifier, t.telegram_thread_id) for t in topics]}")
 
     if not topics:
@@ -158,8 +264,15 @@ async def on_group_selected(callback: CallbackQuery, session: AsyncSession, stat
     # Импортируем функцию формирования клавиатуры
     from bot.keyboards import get_topics_inline_kb
 
-    # Формируем клавиатуру через get_topics_inline_kb
-    keyboard = get_topics_inline_kb(topics=topics_as_dicts, page=0, page_size=5, get_text=get_text, back_callback="list_back:groups")
+    # Формируем клавиатуру через get_topics_inline_kb (с заголовком группы!)
+    keyboard = get_topics_inline_kb(
+        topics=topics_as_dicts,
+        group_title=group['chat_title'],
+        page=0,
+        page_size=5,
+        get_text=get_text,
+        back_callback="list_back:groups"
+    )
 
     text = (
         f"<b>👥 Группа: {group['chat_title']}</b>\n\n"
@@ -167,17 +280,15 @@ async def on_group_selected(callback: CallbackQuery, session: AsyncSession, stat
         f"<i>Выберите тему для просмотра источников:</i>"
     )
 
-    # Обновляем черновик
-    try:
-        await callback.message.edit_text(
-            text,
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
-    except Exception as e:
-        logger.warning(f"⚠️ Не удалось обновить сообщение: {e}")
-        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
-    
+    # Обновляем сообщение через update_or_send_menu
+    await update_or_send_menu(
+        bot=bot,
+        chat_id=callback.from_user.id,
+        text=text,
+        keyboard=keyboard,
+        state=state
+    )
+
     await state.set_state(MySources.viewing_topics)
 
 
@@ -238,99 +349,162 @@ async def on_topic_selected(callback: CallbackQuery, session: AsyncSession, stat
             'source_type': source.source_type
         })
 
+    # Получаем название темы для заголовка
+    topic_name = "Без названия"
+    for topic in data.get('current_topics', []):
+        if topic.topic_identifier == topic_identifier:
+            topic_name = topic.topic_name or "Без названия"
+            break
+
     # Импортируем функцию формирования клавиатуры
     from bot.keyboards import get_source_list_kb
-    
-    # Формируем клавиатуру через get_source_list_kb (всегда с навигацией)
-    keyboard = get_source_list_kb(sources=sources, page=0, page_size=5, get_text=get_text, use_subscription_id=True, back_callback="list_back:topics")
+
+    # Формируем клавиатуру через get_source_list_kb (с заголовком темы!)
+    keyboard = get_source_list_kb(
+        sources=sources,
+        topic_title=topic_name,
+        page=0,
+        page_size=5,
+        get_text=get_text,
+        use_subscription_id=True,
+        back_callback="list_back:topics"
+    )
 
     text = (
-        f"<b>🗨️ Тема: {current_group.get('chat_title', 'N/A')}</b>\n\n"
+        f"<b>🗨️ Тема: {topic_name}</b>\n\n"
         f"<b>📊 Источники:</b> {len(sources)}\n\n"
         f"<i>Нажмите на источник для перехода или ❌ для удаления</i>"
     )
 
-    # Обновляем сообщение
-    try:
-        if callback.message:
-            await callback.message.edit_text(
-                text,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-                reply_markup=keyboard
-            )
-        else:
-            await callback.answer("❌ Ошибка: сообщение не найдено", show_alert=True)
-    except Exception as e:
-        logger.warning(f"⚠️ Не удалось обновить сообщение: {e}")
-        await callback.message.answer(
-            text,
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-            reply_markup=keyboard
-        )
+    # Обновляем сообщение через update_or_send_menu
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=text,
+        keyboard=keyboard,
+        state=state
+    )
 
     await state.set_state(MySources.viewing_sources)
 
     # Сохраняем topic_identifier для пагинации
-    await state.update_data(current_topic_identifier=topic_identifier, sources_page=0)
+    await state.update_data(current_topic_identifier=topic_identifier, sources_page=0, topic_title=topic_name)
 
 
 # ========== УДАЛЕНИЕ ИСТОЧНИКА ==========
 @router.callback_query(F.data.startswith("del_sub:"))
-async def on_delete_source(callback: CallbackQuery, session: AsyncSession, state: FSMContext, get_text: callable):
-    """Удаление источника из топика (полное удаление подписки)"""
-    logger.info(f"🔥 CALLBACK del_sub: {callback.data}")
-    
+async def on_delete_source_request(callback: CallbackQuery, session: AsyncSession, state: FSMContext, get_text: callable):
+    """Показать подтверждение удаления источника"""
+    logger.info(f"🔍 CALLBACK del_sub: {callback.data}")
+
     callback_data = callback.data.split(":")
     if len(callback_data) != 2:
         logger.error(f"❌ Неверный формат callback_data: {callback.data}")
         await callback.answer("❌ Ошибка формата", show_alert=True)
         return
-    
+
+    subscription_id = int(callback_data[1])
+
+    # Находим подписку для получения имени источника
+    sub_stmt = select(SourceSubscription).where(
+        SourceSubscription.subscription_id == subscription_id
+    )
+    sub_result = await session.execute(sub_stmt)
+    subscription = sub_result.scalar_one_or_none()
+
+    if not subscription:
+        logger.warning(f"❌ Подписка {subscription_id} не найдена")
+        await callback.answer("❌ Подписка не найдена", show_alert=True)
+        return
+
+    # Получаем имя источника
+    source_stmt = select(ContentSource).where(
+        ContentSource.source_global_id == subscription.source_global_id
+    )
+    source_result = await session.execute(source_stmt)
+    source = source_result.scalar_one_or_none()
+
+    source_name = "Без названия"
+    if source:
+        source_name = source.channel_title or source.telegram_username or source.youtube_username or "Без названия"
+
+    # Сохраняем subscription_id в состоянии для последующего удаления
+    await state.update_data(pending_delete_subscription_id=subscription_id)
+
+    # Показываем подтверждение
+    from bot.keyboards import get_confirm_delete_source_kb
+
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=f"⚠️ <b>Удалить источник?</b>\n\n📰 {source_name}\n\nВы уверены?",
+        keyboard=get_confirm_delete_source_kb(source_name, subscription_id, get_text),
+        state=state
+    )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("del_sub_confirm:"))
+async def on_delete_source_confirm(callback: CallbackQuery, session: AsyncSession, state: FSMContext, get_text: callable):
+    """Подтверждение удаления источника - выполняем удаление"""
+    logger.info(f"✅ CALLBACK del_sub_confirm: {callback.data}")
+
+    callback_data = callback.data.split(":")
+    if len(callback_data) != 2:
+        logger.error(f"❌ Неверный формат callback_data: {callback.data}")
+        await callback.answer("❌ Ошибка формата", show_alert=True)
+        return
+
     subscription_id = int(callback_data[1])
     data = await state.get_data()
     current_group = data.get('current_group')
-    
-    logger.info(f"🗑️ Удаление подписки {subscription_id}, current_group={current_group}")
-    
+    current_topic_identifier = data.get('current_topic_identifier')
+    topic_title = data.get('topic_title', 'Тема')
+
     try:
-        # Находим подписку (SourceSubscription)
+        # Находим подписку
         sub_stmt = select(SourceSubscription).where(
             SourceSubscription.subscription_id == subscription_id
         )
         sub_result = await session.execute(sub_stmt)
         subscription = sub_result.scalar_one_or_none()
-        
-        logger.info(f"🔍 Подписка найдена: {subscription is not None}")
-        
+
         if not subscription:
             logger.warning(f"❌ Подписка {subscription_id} не найдена")
-            await callback.answer("❌ Подписка не найдена. Возможно, она уже удалена.", show_alert=True)
+            await callback.answer("❌ Подписка не найдена", show_alert=True)
             return
-        
-        topic_identifier = None
-        # Находим назначение, чтобы знать, какой топик обновлять
-        # У одной подписки может быть несколько назначений, поэтому используем first()
-        assign_stmt = select(TopicSourceAssignment).where(
-            TopicSourceAssignment.subscription_id == subscription_id
-        )
-        assign_result = await session.execute(assign_stmt)
-        assignment = assign_result.first()
-        if assignment:
-            assignment = assignment[0]  # Получаем первый элемент кортежа
-        
-        if assignment:
-            topic_identifier = assignment.topic_identifier
-        
+
+        topic_identifier = current_topic_identifier
+        if not topic_identifier:
+            # Находим назначение, чтобы знать, какой топик обновлять
+            assign_stmt = select(TopicSourceAssignment).where(
+                TopicSourceAssignment.subscription_id == subscription_id
+            )
+            assign_result = await session.execute(assign_stmt)
+            assignment = assign_result.first()
+            if assignment:
+                topic_identifier = assignment[0].topic_identifier
+
         logger.info(f"✅ Найдена подписка: source={subscription.source_global_id}, chat={subscription.telegram_chat_id}")
+
+        # Получаем имя источника перед удалением
+        source_stmt = select(ContentSource).where(
+            ContentSource.source_global_id == subscription.source_global_id
+        )
+        source_result = await session.execute(source_stmt)
+        source = source_result.scalar_one_or_none()
         
+        source_name = "Без названия"
+        if source:
+            source_name = source.channel_title or source.telegram_username or source.youtube_username or "Без названия"
+
         # Удаляем подписку (TopicSourceAssignment удалятся каскадно!)
         await session.delete(subscription)
         await session.commit()
-        
+
         logger.info(f"✅ Подписка удалена: subscription_id={subscription_id}")
-        
+
         # Получаем обновлённый список источников
         stmt = (
             select(ContentSource, SourceSubscription, TopicSourceAssignment)
@@ -343,7 +517,7 @@ async def on_delete_source(callback: CallbackQuery, session: AsyncSession, state
         )
         result = await session.execute(stmt)
         rows = result.all()
-        
+
         logger.info(f"📊 Осталось источников: {len(rows)}")
 
         # Формируем список источников для get_source_list_kb
@@ -367,37 +541,142 @@ async def on_delete_source(callback: CallbackQuery, session: AsyncSession, state
         # Импортируем функцию формирования клавиатуры
         from bot.keyboards import get_source_list_kb
 
-        # Формируем клавиатуру через get_source_list_kb
-        keyboard = get_source_list_kb(sources=sources, page=page, page_size=5, get_text=get_text, use_subscription_id=True, back_callback="list_back:topics")
+        # Формируем клавиатуру через get_source_list_kb (с заголовком темы!)
+        keyboard = get_source_list_kb(
+            sources=sources,
+            topic_title=topic_title,
+            page=page,
+            page_size=5,
+            get_text=get_text,
+            use_subscription_id=True,
+            back_callback="list_back:topics"
+        )
 
         page_info = f" ({page + 1}/{total_pages})" if total_pages > 1 else ""
         text = (
-            f"<b>🗨️ Тема: {current_group.get('chat_title', 'N/A')}</b>{page_info}\n\n"
+            f"<b>🗨️ Тема: {topic_title}</b>{page_info}\n\n"
             f"<b>📊 Источники:</b> {len(sources)}\n\n"
             f"<i>Нажмите на источник для перехода или ❌ для удаления</i>"
         )
 
-        try:
-            await callback.message.edit_text(
-                text,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-                reply_markup=keyboard
-            )
-        except:
-            await callback.message.answer(
-                text,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-                reply_markup=keyboard
-            )
-        
+        # Импортируем функцию формирования клавиатуры
+        from bot.keyboards import get_source_list_kb
+
+        # Формируем клавиатуру через get_source_list_kb (с заголовком темы!)
+        keyboard = get_source_list_kb(
+            sources=sources,
+            topic_title=topic_title,
+            page=page,
+            page_size=5,
+            get_text=get_text,
+            use_subscription_id=True,
+            back_callback="list_back:topics"
+        )
+
+        # 1. Удаляем старое навигационное сообщение ЧЕРЕЗ 2 СЕКУНДЫ
+        await delete_menu_message_with_delay(
+            bot=callback.bot,
+            chat_id=callback.from_user.id,
+            state=state,
+            delay=2
+        )
+
+        # 2. Отправляем НОВОЕ сообщение с результатом
+        result_msg = await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text=f"✅ <b>{source_name}</b> удалён из темы <b>{topic_title}</b>",
+            parse_mode="HTML"
+        )
+        logger.info(f"📤 Отправлено сообщение о результате: {result_msg.message_id}")
+
+        # 3. Отправляем НОВОЕ навигационное сообщение (обновлённый список)
+        new_nav_msg = await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text=text,
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+        logger.info(f"📤 Отправлено новое навигационное сообщение: {new_nav_msg.message_id}")
+
+        # 4. Сохраняем новый message_id в состоянии
+        await state.update_data({MENU_MESSAGE_ID_KEY: new_nav_msg.message_id})
+
         await callback.answer("✅ Подписка удалена")
-        
+
     except Exception as e:
         await session.rollback()
         logger.error(f"❌ Ошибка удаления подписки: {e}", exc_info=True)
         await callback.answer("❌ Ошибка при удалении", show_alert=True)
+
+
+@router.callback_query(F.data == "del_sub_cancel")
+async def on_delete_source_cancel(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Отмена удаления источника"""
+    logger.info(f"❌ CALLBACK del_sub_cancel")
+
+    # Очищаем pending_delete_subscription_id из состояния
+    data = await state.get_data()
+    if 'pending_delete_subscription_id' in data:
+        del data['pending_delete_subscription_id']
+        await state.set_data(data)
+
+    # Возвращаемся назад к списку источников
+    topic_title = data.get('topic_title', 'Тема')
+    sources = data.get('current_sources', [])
+    sources_page = data.get('sources_page', 0)
+    current_topic_identifier = data.get('current_topic_identifier')
+
+    # Если нет current_sources, загружаем из БД
+    if not sources and current_topic_identifier:
+        current_group = data.get('current_group')
+        stmt = (
+            select(ContentSource, SourceSubscription, TopicSourceAssignment)
+            .join(SourceSubscription, SourceSubscription.source_global_id == ContentSource.source_global_id)
+            .join(TopicSourceAssignment, TopicSourceAssignment.subscription_id == SourceSubscription.subscription_id)
+            .where(
+                TopicSourceAssignment.topic_identifier == current_topic_identifier,
+                SourceSubscription.telegram_chat_id == current_group['chat_id']
+            )
+        )
+        result = await session.execute(stmt)
+        rows = result.all()
+        sources = [
+            {
+                'source_global_id': row[0].source_global_id,
+                'name': row[0].channel_title or row[0].telegram_username or "Без названия",
+                'subscription_id': row[1].subscription_id,
+                'source_type': row[0].source_type
+            }
+            for row in rows
+        ]
+
+    from bot.keyboards import get_source_list_kb
+
+    keyboard = get_source_list_kb(
+        sources=sources,
+        topic_title=topic_title,
+        page=sources_page,
+        page_size=5,
+        get_text=get_text,
+        use_subscription_id=True,
+        back_callback="list_back:topics"
+    )
+
+    text = (
+        f"<b>🗨️ Тема: {topic_title}</b>\n\n"
+        f"<b>📊 Источники:</b> {len(sources)}\n\n"
+        f"<i>Нажмите на источник для перехода или ❌ для удаления</i>"
+    )
+
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=text,
+        keyboard=keyboard,
+        state=state
+    )
+
+    await callback.answer("Удаление отменено")
 
 
 # ========== ПАГИНАЦИЯ ИСТОЧНИКОВ ==========
@@ -408,6 +687,7 @@ async def on_sources_page_change(callback: CallbackQuery, session: AsyncSession,
     data = await state.get_data()
     current_group = data.get('current_group')
     topic_identifier = data.get('current_topic_identifier')
+    topic_title = data.get('topic_title', 'Тема')
 
     # Обновляем страницу в состоянии
     await state.update_data(sources_page=page)
@@ -445,30 +725,31 @@ async def on_sources_page_change(callback: CallbackQuery, session: AsyncSession,
     # Импортируем функцию формирования клавиатуры
     from bot.keyboards import get_source_list_kb
 
-    # Формируем клавиатуру через get_source_list_kb
-    keyboard = get_source_list_kb(sources=sources, page=page, page_size=5, get_text=get_text, use_subscription_id=True, back_callback="list_back:topics")
+    # Формируем клавиатуру через get_source_list_kb (с заголовком темы!)
+    keyboard = get_source_list_kb(
+        sources=sources,
+        topic_title=topic_title,
+        page=page,
+        page_size=5,
+        get_text=get_text,
+        use_subscription_id=True,
+        back_callback="list_back:topics"
+    )
 
     page_info = f" ({page + 1}/{total_pages})" if total_pages > 1 else ""
     text = (
-        f"<b>🗨️ Тема: {current_group.get('chat_title', 'N/A')}</b>{page_info}\n\n"
+        f"<b>🗨️ Тема: {topic_title}</b>{page_info}\n\n"
         f"<b>📊 Источники:</b> {len(sources)}\n\n"
         f"<i>Нажмите на источник для перехода или ❌ для удаления</i>"
     )
 
-    try:
-        await callback.message.edit_text(
-            text,
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-            reply_markup=keyboard
-        )
-    except:
-        await callback.message.answer(
-            text,
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-            reply_markup=keyboard
-        )
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=text,
+        keyboard=keyboard,
+        state=state
+    )
 
     await callback.answer()
 
@@ -483,21 +764,16 @@ async def on_back_pressed(callback: CallbackQuery, state: FSMContext, bot: Bot, 
     groups = data.get('groups', [])
 
     if where_to == "main":
-        # Главное меню - ReplyKeyboardMarkup нельзя использовать в edit_text
-        from bot.keyboards import get_main_menu
+        # Главное меню - InlineKeyboardMarkup
+        from bot.keyboards import get_main_menu_inline
 
-        # Отправляем новое сообщение с главным меню
-        await callback.message.answer(
-            get_text(['common', 'menu']),
-            parse_mode="HTML",
-            reply_markup=get_main_menu(get_text)
+        await update_or_send_menu(
+            bot=callback.bot,
+            chat_id=callback.from_user.id,
+            text=get_text(['common', 'menu']),
+            keyboard=get_main_menu_inline(get_text),
+            state=state
         )
-
-        # Удаляем сообщение с кнопками
-        try:
-            await callback.message.delete()
-        except:
-            pass
 
         await state.clear()
         await callback.answer()
@@ -511,7 +787,7 @@ async def on_back_pressed(callback: CallbackQuery, state: FSMContext, bot: Bot, 
         groups_page = data.get('groups_page', 0)
 
         # Формируем клавиатуру через get_groups_inline_kb
-        keyboard = get_groups_inline_kb(groups=groups, page=groups_page, page_size=5, get_text=get_text, back_callback="list_cancel")
+        keyboard = get_groups_inline_kb(groups=groups, page=groups_page, page_size=5, get_text=get_text, back_callback="back_to_main")
 
         text = (
             f"<b>📚 Мои источники</b>\n\n"
@@ -519,10 +795,13 @@ async def on_back_pressed(callback: CallbackQuery, state: FSMContext, bot: Bot, 
             f"<i>Выберите группу для просмотра тем:</i>"
         )
 
-        try:
-            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
-        except:
-            await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+        await update_or_send_menu(
+            bot=callback.bot,
+            chat_id=callback.from_user.id,
+            text=text,
+            keyboard=keyboard,
+            state=state
+        )
 
         await state.set_state(MySources.viewing_groups)
 
@@ -546,8 +825,15 @@ async def on_back_pressed(callback: CallbackQuery, state: FSMContext, bot: Bot, 
         # Получаем текущую страницу из состояния
         topics_page = data.get('topics_page', 0)
 
-        # Формируем клавиатуру через get_topics_inline_kb
-        keyboard = get_topics_inline_kb(topics=topics_as_dicts, page=topics_page, page_size=5, get_text=get_text, back_callback="list_back:groups")
+        # Формируем клавиатуру через get_topics_inline_kb (с заголовком группы!)
+        keyboard = get_topics_inline_kb(
+            topics=topics_as_dicts,
+            group_title=current_group['chat_title'],
+            page=topics_page,
+            page_size=5,
+            get_text=get_text,
+            back_callback="list_back:groups"
+        )
 
         text = (
             f"<b>👥 Группа: {current_group['chat_title']}</b>\n\n"
@@ -555,14 +841,13 @@ async def on_back_pressed(callback: CallbackQuery, state: FSMContext, bot: Bot, 
             f"<i>Выберите тему для просмотра источников:</i>"
         )
 
-        try:
-            if callback.message:
-                await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
-            else:
-                await callback.answer("❌ Ошибка: сообщение не найдено", show_alert=True)
-        except Exception as e:
-            logger.warning(f"⚠️ Не удалось обновить сообщение: {e}")
-            await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+        await update_or_send_menu(
+            bot=callback.bot,
+            chat_id=callback.from_user.id,
+            text=text,
+            keyboard=keyboard,
+            state=state
+        )
 
         await state.set_state(MySources.viewing_topics)
 
@@ -584,7 +869,7 @@ async def on_groups_page_change(callback: CallbackQuery, session: AsyncSession, 
     from bot.keyboards import get_groups_inline_kb
 
     # Формируем клавиатуру через get_groups_inline_kb
-    keyboard = get_groups_inline_kb(groups=groups, page=page, page_size=5, get_text=get_text, back_callback="list_cancel")
+    keyboard = get_groups_inline_kb(groups=groups, page=page, page_size=5, get_text=get_text, back_callback="back_to_main")
 
     text = (
         f"<b>📚 Мои источники</b>\n\n"
@@ -592,10 +877,13 @@ async def on_groups_page_change(callback: CallbackQuery, session: AsyncSession, 
         f"<i>Выберите группу для просмотра тем:</i>"
     )
 
-    try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
-    except:
-        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=text,
+        keyboard=keyboard,
+        state=state
+    )
 
     await callback.answer()
 
@@ -625,8 +913,15 @@ async def on_topics_page_change(callback: CallbackQuery, session: AsyncSession, 
     # Импортируем функцию формирования клавиатуры
     from bot.keyboards import get_topics_inline_kb
 
-    # Формируем клавиатуру через get_topics_inline_kb
-    keyboard = get_topics_inline_kb(topics=topics_as_dicts, page=page, page_size=5, get_text=get_text, back_callback="list_back:groups")
+    # Формируем клавиатуру через get_topics_inline_kb (с заголовком группы!)
+    keyboard = get_topics_inline_kb(
+        topics=topics_as_dicts,
+        group_title=current_group['chat_title'],
+        page=page,
+        page_size=5,
+        get_text=get_text,
+        back_callback="list_back:groups"
+    )
 
     text = (
         f"<b>👥 Группа: {current_group['chat_title']}</b>\n\n"
@@ -634,10 +929,13 @@ async def on_topics_page_change(callback: CallbackQuery, session: AsyncSession, 
         f"<i>Выберите тему для просмотра источников:</i>"
     )
 
-    try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
-    except:
-        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=text,
+        keyboard=keyboard,
+        state=state
+    )
 
     await callback.answer()
 
@@ -645,35 +943,32 @@ async def on_topics_page_change(callback: CallbackQuery, session: AsyncSession, 
 # ========== ОТМЕНА ==========
 @router.callback_query(F.data == "list_cancel")
 async def on_cancel_pressed(callback: CallbackQuery, state: FSMContext, get_text: callable):
-    """Отмена просмотра источников - возврат в главное меню"""
-    # Получаем message_id перед очисткой состояния
+    """Отмена просмотра источников - возврат в главное меню (как back_to_main)"""
+    # Сохраняем message_id перед очисткой!
     data = await state.get_data()
-    sources_message_id = data.get('sources_message_id')
-    
-    # Очищаем состояние
+    menu_message_id = data.get('_menu_message_id')
+    logger.info(f"🔙 НАЗАД: сохранён menu_message_id={menu_message_id}")
+
     await state.clear()
-    
-    # Удаляем сообщение с клавиатурой источников
-    if sources_message_id:
-        try:
-            await callback.bot.delete_message(chat_id=callback.from_user.id, message_id=sources_message_id)
-            logger.info(f"🗑️ Удалено сообщение источников {sources_message_id}")
-        except Exception as e:
-            logger.debug(f"⚠️ Не удалось удалить сообщение источников: {e}")
 
-    from bot.keyboards import get_main_menu
+    # Восстанавливаем message_id
+    if menu_message_id:
+        await state.update_data({'_menu_message_id': menu_message_id})
+        logger.info(f"🔙 НАЗАД: восстановлен menu_message_id={menu_message_id}")
 
-    # ReplyKeyboardMarkup нельзя использовать в edit_text, поэтому отправляем новое сообщение
-    await callback.message.answer(
-        get_text(['common', 'menu']),
-        parse_mode="HTML",
-        reply_markup=get_main_menu(get_text)
+    # Проверяем, что message_id читается
+    data_after = await state.get_data()
+    logger.info(f"🔙 НАЗАД: после восстановления data={data_after}")
+
+    from bot.keyboards import get_main_menu_inline
+
+    # Обновляем текущее сообщение на главное меню (без fallback_message)
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['common', 'menu']),
+        keyboard=get_main_menu_inline(get_text),
+        state=state
     )
 
-    # Удаляем сообщение с кнопками
-    try:
-        await callback.message.delete()
-    except:
-        pass
-
-    await callback.answer()
+    await callback.answer("✅ Возврат в главное меню")

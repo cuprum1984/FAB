@@ -136,7 +136,11 @@ MESSAGES = {
         
         "cancel": "❌ Отмена",
         "back": "← Назад",
+        "back_to_groups": "🔙 К группам",
+        "back_to_topics": "🔙 К темам",
+        "back_to_sources": "🔙 К источникам",
         "back_to_settings": "← Назад в настройки",
+        "back_to_main": "🔙 В главное меню",
         
         "confirm_add": "✅ Да, добавить",
         "edit_title": "✏️ Изменить название",

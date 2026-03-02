@@ -86,12 +86,13 @@ class GroupCommandFilterMiddleware(BaseMiddleware):
                             "3. In the group, enter /activ\n"
                             "4. In the desired topic, enter /plus"
                         )
-                    
+
                     await event.answer(text)
-                    logger.info(f"ℹ️ Пользователь {event.from_user.id} вызвал {command} в ЛС")
+                    logger.info(f"ℹ️ Пользователь {event.from_user.id} вызвал {command} в ЛС — заблокировано")
                     return None  # Прерываем обработку
-                
+
                 # Все остальные команды в ЛС разрешены
+                logger.debug(f"✅ Команда {command} в ЛС разрешена для пользователя {event.from_user.id}")
                 return await handler(event, data)
             
             # === СЛУЧАЙ 2: Команда в группе/теме ===

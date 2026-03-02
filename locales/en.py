@@ -141,7 +141,11 @@ MESSAGES = {
         # Cancel/back
         "cancel": "❌ Cancel",
         "back": "← Back",
+        "back_to_groups": "🔙 To groups",
+        "back_to_topics": "🔙 To topics",
+        "back_to_sources": "🔙 To sources",
         "back_to_settings": "← Back to settings",
+        "back_to_main": "🔙 To main menu",
         
         # Confirmations
         "confirm_add": "✅ Yes, add",

@@ -10,10 +10,6 @@ from core.database import async_session  # ← твоя фабрика сесс�
 
 
 class DBSessionMiddleware(BaseMiddleware):
-    async def __call__(self, handler, event, data):
-        async with async_session() as session:
-            data["session"] = session
-            return await handler(event, data)
     """
     Простой middleware: создаёт новую AsyncSession для каждого события
     и передаёт её в data['session']
