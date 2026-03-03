@@ -219,8 +219,8 @@ async def on_menu_add(callback: CallbackQuery, state: FSMContext, session: Async
     """Обработчик кнопки "Добавить канал" — запускает процесс добавления"""
     await callback.answer()
 
-    # Импортируем хендлер добавления канала из sources.py
-    from bot.handlers.sources import cmd_add_channel
+    # Импортируем хендлер добавления канала
+    from bot.handlers.sources.add_channel import cmd_add_channel
     from aiogram.types import Message
     
     # Создаём фейковый Message объект с правильным from_user

@@ -463,7 +463,7 @@ async def on_delete_source_confirm(callback: CallbackQuery, session: AsyncSessio
     topic_title = data.get('topic_title', 'Тема')
 
     try:
-        # Находим подписку
+        # Находим подписку для получения информации об источнике
         sub_stmt = select(SourceSubscription).where(
             SourceSubscription.subscription_id == subscription_id
         )
@@ -494,16 +494,43 @@ async def on_delete_source_confirm(callback: CallbackQuery, session: AsyncSessio
         )
         source_result = await session.execute(source_stmt)
         source = source_result.scalar_one_or_none()
-        
+
         source_name = "Без названия"
         if source:
             source_name = source.channel_title or source.telegram_username or source.youtube_username or "Без названия"
 
-        # Удаляем подписку (TopicSourceAssignment удалятся каскадно!)
-        await session.delete(subscription)
-        await session.commit()
+        # Удаляем только назначение из темы (не всю подписку!)
+        assign_to_delete_stmt = select(TopicSourceAssignment).where(
+            TopicSourceAssignment.subscription_id == subscription_id,
+            TopicSourceAssignment.topic_identifier == topic_identifier
+        )
+        assign_to_delete_result = await session.execute(assign_to_delete_stmt)
+        assignment_to_delete = assign_to_delete_result.scalar_one_or_none()
 
-        logger.info(f"✅ Подписка удалена: subscription_id={subscription_id}")
+        if assignment_to_delete:
+            await session.delete(assignment_to_delete)
+            await session.commit()
+            logger.info(f"✅ Назначение удалено: subscription_id={subscription_id}, topic_identifier={topic_identifier}")
+        else:
+            logger.warning(f"⚠️ Назначение не найдено: subscription_id={subscription_id}, topic_identifier={topic_identifier}")
+            await session.rollback()
+            await callback.answer("❌ Назначение не найдено", show_alert=True)
+            return
+
+        # Проверяем, остались ли другие назначения у этой подписки
+        remaining_assignments_stmt = select(TopicSourceAssignment).where(
+            TopicSourceAssignment.subscription_id == subscription_id
+        )
+        remaining_result = await session.execute(remaining_assignments_stmt)
+        remaining_assignments = remaining_result.scalars().all()
+
+        if not remaining_assignments:
+            # Если назначений не осталось, можно удалить и саму подписку
+            await session.delete(subscription)
+            await session.commit()
+            logger.info(f"✅ Подписка удалена (не осталось назначений): subscription_id={subscription_id}")
+        else:
+            logger.info(f"✅ Подписка осталась (есть {len(remaining_assignments)} других назначений): subscription_id={subscription_id}")
 
         # Получаем обновлённый список источников
         stmt = (
