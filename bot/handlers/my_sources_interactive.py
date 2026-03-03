@@ -6,6 +6,7 @@
 import logging
 import hashlib
 from aiogram import Router, F, Bot
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 from sqlalchemy import select
@@ -26,7 +27,7 @@ router = Router()
 
 
 # ========== ГЛАВНАЯ КОМАНДА /list ==========
-@router.message(F.command.in_(["list", "mysources"]))
+@router.message(Command("list", "mysources"))
 async def cmd_my_sources_command(message: Message, session: AsyncSession, bot: Bot, state: FSMContext, get_text: callable = None):
     """Показать источники с интерактивной навигацией (обработчик команды /list)"""
     user_id = message.from_user.id

@@ -374,16 +374,6 @@ async def cmd_my_topics(message: Message, session: AsyncSession, get_text: calla
     """Показать все зарегистрированные темы пользователя."""
     user_id = message.from_user.id
 
-    # Отправляем служебное сообщение
-    status_msg = None
-    try:
-        status_msg = await message.answer(
-            "⏳ Обновляем списки, минуточку....",
-            disable_notification=True
-        )
-    except Exception:
-        pass
-
     # Получаем текст проверки из локализации
     check_text = get_text(['topic_check', 'message'])
 
@@ -391,26 +381,23 @@ async def cmd_my_topics(message: Message, session: AsyncSession, get_text: calla
     from core.utils.topic_checker import verify_user_topics
     alive_topics, deleted_topics, total = await verify_user_topics(user_id, bot, session, check_text)
 
-    # Превращаем служебное сообщение в финальное
-    if status_msg:
-        try:
-            if deleted_topics:
-                await status_msg.edit_text(
-                    f"✅ Список обновлён" #(скрыто {len(deleted_topics)} удалённых тем)"
-                )
-            else:
-                await status_msg.edit_text("✅ Список обновлён")
-        except:
-            pass
-
     # Получаем группы пользователя (только с живыми темами)
     groups = await get_user_groups(user_id, session, only_existing_topics=True)
 
     if not groups:
-        await message.answer(
-            get_text(['admin', 'mytopics_no_groups']),
-            parse_mode="HTML"
-        )
+        # Используем sendMessageDraft для эффекта "печатает..."
+        try:
+            await bot.send_message_draft(
+                chat_id=user_id,
+                text=get_text(['admin', 'mytopics_no_groups']),
+                parse_mode="HTML"
+            )
+        except Exception:
+            # Fallback: обычное сообщение
+            await message.answer(
+                get_text(['admin', 'mytopics_no_groups']),
+                parse_mode="HTML"
+            )
         return
 
     text = get_text(['admin', 'mytopics_title'])
@@ -445,7 +432,16 @@ async def cmd_my_topics(message: Message, session: AsyncSession, get_text: calla
 
     text += get_text(['admin', 'mytopics_total'], count=total_topics)
 
-    await message.answer(text, parse_mode="HTML")
+    # Используем sendMessageDraft для эффекта "печатает..."
+    try:
+        await bot.send_message_draft(
+            chat_id=user_id,
+            text=text,
+            parse_mode="HTML"
+        )
+    except Exception:
+        # Fallback: обычное сообщение
+        await message.answer(text, parse_mode="HTML")
 
 @router.message(Command("plus"))
 async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, get_text: callable):

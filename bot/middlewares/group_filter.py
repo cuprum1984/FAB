@@ -87,7 +87,11 @@ class GroupCommandFilterMiddleware(BaseMiddleware):
                             "4. In the desired topic, enter /plus"
                         )
 
-                    await event.answer(text)
+                    await event.bot.send_message(
+                        chat_id=event.from_user.id,
+                        text=text,
+                        reply_to_message_id=event.message_id
+                    )
                     logger.info(f"ℹ️ Пользователь {event.from_user.id} вызвал {command} в ЛС — заблокировано")
                     return None  # Прерываем обработку
 
@@ -114,9 +118,14 @@ class GroupCommandFilterMiddleware(BaseMiddleware):
                             "Write to me in DM: @MyAggryBot"
                         )
                     
-                    await event.answer(text)
+                    await event.bot.send_message(
+                        chat_id=event.chat.id,
+                        text=text,
+                        reply_to_message_id=event.message_id
+                    )
+                    logger.info(f"🚫 Заблокирована команда {full_command} в группе {event.chat.id}")
                     return None
-                
+
                 # Разрешённая команда в группе
                 return await handler(event, data)
         
