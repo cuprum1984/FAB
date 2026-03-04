@@ -227,14 +227,14 @@ class RateLimiter:
     async def acquire(self, domain: str, tokens: int = 1) -> float:
         """
         Запросить разрешение на запрос к домену.
-        
+
         Args:
             domain: "telegram" или "youtube"
             tokens: Количество токенов (обычно 1)
-        
+
         Returns:
             Время ожидания в секундах
-        
+
         Example:
             wait_time = await rate_limiter.acquire("telegram")
             if wait_time > 0:
@@ -243,15 +243,17 @@ class RateLimiter:
         """
         if domain not in self._buckets:
             raise ValueError(f"Неизвестный домен: {domain}. Доступны: {list(self._buckets.keys())}")
-        
+
         bucket = self._buckets[domain]
-        
-        # Ждём токены из bucket
-        wait_time = await bucket.acquire(tokens)
-        
-        # Проверяем глобальный лимит
+
+        # 1. СНАЧАЛА проверяем глобальный лимит (чтобы не ждать токены зря)
         global_wait = await self._check_global_limit()
-        wait_time = max(wait_time, global_wait)
+
+        # 2. Потом ждём токены из bucket
+        bucket_wait = await bucket.acquire(tokens)
+
+        # 3. Берём максимальное время ожидания
+        wait_time = max(global_wait, bucket_wait)
         
         # Обновляем статистику
         await self._update_stats(domain, waited=wait_time > 0, wait_time=wait_time)

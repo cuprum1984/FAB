@@ -45,17 +45,68 @@ class TelegramMonitor:
             cached_id = await get_cached_last_post(username)
             logger.info(f"   📦 В Redis cached_id = {cached_id}")
 
-            if source.last_successful_post_id:
+            # ===== СИНХРОНИЗАЦИЯ БД И REDIS =====
+            if source.last_successful_post_id is None and cached_id is not None:
+                # Redis есть, БД пустая — восстанавливаем из Redis
+                logger.info(f"🔄 Восстанавливаю last_successful_post_id из Redis: {cached_id}")
+                source.last_successful_post_id = cached_id
+                await session.flush()
+
+            elif source.last_successful_post_id is not None and cached_id is None:
+                # БД есть, Redis пустой — восстанавливаем из БД
+                logger.info(f"🔄 Восстанавливаю Redis из БД: {source.last_successful_post_id}")
+                await set_cached_last_post(username, source.last_successful_post_id)
+
+            elif source.last_successful_post_id is not None and cached_id is not None:
+                # Оба есть, проверяем расхождения
                 if cached_id != source.last_successful_post_id:
                     logger.warning(
-                        f"⚠️ Redis устарел для @{username}: "
-                        f"в Redis={cached_id}, в БД={source.last_successful_post_id}. Чиним..."
+                        f"⚠️ Расхождение Redis/БД для @{username}: "
+                        f"Redis={cached_id}, БД={source.last_successful_post_id}. Используем БД..."
                     )
                     await set_cached_last_post(username, source.last_successful_post_id)
                     logger.info(f"✅ Redis обновлён: {source.last_successful_post_id}")
 
+            # ===== ПЕРВЫЙ ЗАПУСК: ни БД ни Redis не содержат ID =====
             if source.last_successful_post_id is None:
-                logger.info(f"🆕 Первый запуск для {source_name}, новых постов нет (уже отправили при добавлении)")
+                # ПЕРВЫЙ ЗАПУСК: нужно получить последний пост и сохранить его ID
+                logger.info(f"🆕 Первый запуск для {source_name}, получаю последний пост...")
+
+                # Получаем последний пост (только один)
+                new_posts = await get_telegram_posts(
+                    username,
+                    last_post_id=None,  # Получаем все посты
+                    first_only=True     # Но берём только последний
+                )
+
+                if new_posts:
+                    last_post = new_posts[-1]  # Берём самый новый
+                    last_post_id = last_post.get('post_id')
+
+                    if last_post_id:
+                        try:
+                            last_post_id_int = int(last_post_id)
+                            logger.info(f"✅ Получен последний пост ID={last_post_id_int} для @{username}")
+
+                            # Сохраняем в БД и Redis
+                            source.last_successful_post_id = last_post_id_int
+                            source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+                            await set_cached_last_post(username, last_post_id_int)
+
+                            await session.flush()
+                            await self.monitoring._reset_source_error_stats(source.source_global_id)
+
+                            logger.info(f"💾 last_successful_post_id сохранён: {last_post_id_int}")
+                            return  # Новые посты не отправляем (уже отправлены при добавлении)
+
+                        except (ValueError, TypeError) as e:
+                            logger.error(f"❌ Ошибка конвертации post_id {last_post_id}: {e}")
+                    else:
+                        logger.warning(f"⚠️ Пост найден, но post_id отсутствует")
+                else:
+                    logger.warning(f"⚠️ Не удалось получить посты из @{username}")
+
+                # Если не удалось получить посты, всё равно обновляем timestamp
                 source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
                 await session.flush()
                 await self.monitoring._reset_source_error_stats(source.source_global_id)

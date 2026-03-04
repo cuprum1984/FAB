@@ -128,7 +128,7 @@ async def finalize_destination_choice(
             first_post_id = data.get("first_post_id")
             username = data.get("source_username")
 
-            if first_post:
+            if first_post and first_post_id:
                 try:
                     source_name = f"@{username}"
                     text = first_post.get('text', '').strip()
@@ -149,14 +149,25 @@ async def finalize_destination_choice(
                     )
                     logger.info(f"✅ Отправлен первый пост ID: {first_post_id}")
 
+                    # ✅ СОХРАНЯЕМ last_successful_post_id В БД И REDIS
+                    source.last_successful_post_id = int(first_post_id)
+                    source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+                    
+                    # Обновляем Redis кеш
+                    from core.redis_client import set_cached_last_post
+                    await set_cached_last_post(username, int(first_post_id))
+                    logger.info(f"💾 last_successful_post_id={first_post_id} сохранён в БД и Redis для @{username}")
+
                     # ✅ ОБНОВЛЯЕМ last_seen_at ПОСЛЕ УСПЕШНОЙ ОТПРАВКИ
                     topic_stmt = select(GroupTopic).where(GroupTopic.topic_identifier == topic_identifier)
                     topic_result = await session.execute(topic_stmt)
                     topic = topic_result.scalar_one_or_none()
                     if topic:
                         topic.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                        await session.commit()
-                        logger.debug(f"✅ last_seen_at обновлён для темы {topic.topic_name}")
+                    
+                    # Сохраняем все изменения (source + topic)
+                    await session.commit()
+                    logger.debug(f"✅ last_seen_at обновлён для темы {topic.topic_name if topic else 'N/A'}")
 
                 except Exception as send_error:
                     logger.error(f"❌ Ошибка отправки первого поста: {send_error}")
@@ -186,14 +197,27 @@ async def finalize_destination_choice(
 
                     logger.info(f"✅ Отправлено первое видео: {first_video_id}")
 
+                    # ✅ СОХРАНЯЕМ last_video_id И last_successful_post_id В БД
+                    source.last_video_id = first_video_id
+                    source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+                    
+                    # Для обратной совместимости сохраняем числовой хеш
+                    import hashlib
+                    video_id_num = int(hashlib.md5(first_video_id.encode()).hexdigest()[:15], 16) % (10**15)
+                    source.last_successful_post_id = video_id_num
+                    
+                    logger.info(f"💾 last_video_id={first_video_id} сохранён в БД для YouTube @{username}")
+
                     # ✅ ОБНОВЛЯЕМ last_seen_at ПОСЛЕ УСПЕШНОЙ ОТПРАВКИ
                     topic_stmt = select(GroupTopic).where(GroupTopic.topic_identifier == topic_identifier)
                     topic_result = await session.execute(topic_stmt)
                     topic = topic_result.scalar_one_or_none()
                     if topic:
                         topic.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                        await session.commit()
-                        logger.debug(f"✅ last_seen_at обновлён для темы {topic.topic_name}")
+                    
+                    # Сохраняем все изменения (source + topic)
+                    await session.commit()
+                    logger.debug(f"✅ last_seen_at обновлён для темы {topic.topic_name if topic else 'N/A'}")
 
                 except Exception as send_error:
                     logger.error(f"❌ Ошибка отправки первого видео: {send_error}")
