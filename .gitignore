@@ -153,7 +153,6 @@ clear_redis.py
 debug_db.py
 redis_data.json
 *.md
-scripts/
 План действий.md
 PROMPTS/
 run_cleanup.py
@@ -167,6 +166,16 @@ t_dns/
 test_del_topic.py
 test_topic_edit.py
 test_topic_silent.py
+logs/
+deploy/
+shared/
+scripts/
+bot.py
+cleaner.py
+monitor.py
+sender.py
+
+
 
 # Spyder project settings
 .spyderproject
