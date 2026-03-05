@@ -115,7 +115,11 @@ MESSAGES = {
 
         "cancel": "❌ Скасаванне",
         "back": "← Назад",
+        "back_to_groups": "🔙 Да груп",
+        "back_to_topics": "🔙 Да тэм",
+        "back_to_sources": "🔙 Да крыніц",
         "back_to_settings": "← Назад у налады",
+        "back_to_main": "🔙 У галоўнае меню",
 
         "confirm_add": "✅ Так, дадаць",
         "edit_title": "✏️ Змяніць назву",

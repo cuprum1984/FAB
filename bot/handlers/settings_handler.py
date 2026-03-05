@@ -24,13 +24,14 @@ from core.models import (
 )
 from bot.states import Settings
 from bot.keyboards import (
-    get_main_menu,
-    get_settings_menu,
+    get_main_menu_inline,
+    get_settings_menu_inline,
     get_language_menu,
     get_back_to_settings_kb,
     get_confirm_delete_kb,
     GetTextFunc
 )
+from bot.utils.menu_message import update_or_send_menu, MENU_MESSAGE_ID_KEY
 import core.utils.i18n
 from core.redis_client import redis_client
 from core.utils.i18n import create_i18n
@@ -52,10 +53,16 @@ SETTINGS_BUTTONS = [
 ]
 # Все остальные кнопки используют локализованный текст
 
-@router.callback_query(~F.data.startswith("set_lang:") & ~(F.data == "back_to_settings"))  # Исключаем set_lang и back_to_settings из дебага
+@router.callback_query(
+    ~F.data.startswith("set_lang:") &
+    ~(F.data == "back_to_settings") &
+    ~F.data.startswith("list_") &  # Исключаем list_group, list_topic, list_back
+    ~F.data.startswith("del_source:") &  # Исключаем del_source (из sources.py)
+    ~F.data.startswith("del_sub:")  # Исключаем del_sub (из my_sources_interactive.py)
+)
 async def debug_callbacks(callback: CallbackQuery):
-    """Временный дебаг - логирует все callbacks кроме set_lang и back_to_settings"""
-    logger.info(f"🔥 CALLBACK: {callback.data}")
+    """Временный дебаг - логирует все callbacks кроме set_lang, back_to_settings, list_*, del_source, del_sub"""
+    logger.info(f"🔥 SETTINGS CALLBACK: {callback.data}")
     # НЕ отвечаем, чтобы не блокировать другие хендлеры
 
 
@@ -78,11 +85,14 @@ async def cmd_settings(message: Message, state: FSMContext, session: AsyncSessio
     
     # Текущий язык
     lang_display = get_text(['settings', 'language_ru']) if prefs.language == "ru" else get_text(['settings', 'language_en'])
-    
-    await message.answer(
-        get_text(['settings', 'title'], lang=lang_display),
-        parse_mode="HTML",
-        reply_markup=get_settings_menu(get_text)
+
+    await update_or_send_menu(
+        bot=message.bot,
+        chat_id=user_id,
+        text=get_text(['settings', 'title'], lang=lang_display),
+        keyboard=get_settings_menu_inline(get_text),
+        state=state,
+        fallback_message=message
     )
     await state.set_state(Settings.main)
 
@@ -112,29 +122,39 @@ async def settings_main_menu(message: Message, state: FSMContext, get_text: GetT
     # 1. Кнопка "Назад" → главное меню
     if text in back_texts:
         logger.info(f"✅ Кнопка 'Назад' распознана, возвращаемся в главное меню")
-        await message.answer(
-            get_text(['common', 'menu']),
-            parse_mode="HTML",
-            reply_markup=get_main_menu(get_text)
+        await update_or_send_menu(
+            bot=message.bot,
+            chat_id=message.from_user.id,
+            text=get_text(['common', 'menu']),
+            keyboard=get_main_menu_inline(get_text),
+            state=state,
+            fallback_message=message
         )
         await state.clear()
         return
 
     # 2. Кнопка "Язык" → выбор языка (только inline-клавиатура)
     if text in lang_texts:
-        await message.answer(
-            get_text(['keyboards', 'language_menu', 'prompt']),  # "Выберите язык:"
-            reply_markup=get_language_menu(get_text)
+        await update_or_send_menu(
+            bot=message.bot,
+            chat_id=message.from_user.id,
+            text=get_text(['keyboards', 'language_menu', 'prompt']),
+            keyboard=get_language_menu(get_text),
+            state=state,
+            fallback_message=message
         )
         await state.set_state(Settings.language)
         return
 
     # 3. Кнопка "Удалить данные" → подтверждение
     if text in delete_texts:
-        await message.answer(
-            get_text(['settings', 'delete_warning']),
-            parse_mode="HTML",
-            reply_markup=get_confirm_delete_kb(get_text)
+        await update_or_send_menu(
+            bot=message.bot,
+            chat_id=message.from_user.id,
+            text=get_text(['settings', 'delete_warning']),
+            keyboard=get_confirm_delete_kb(get_text),
+            state=state,
+            fallback_message=message
         )
         await state.set_state(Settings.confirm_delete)
         return
@@ -175,42 +195,18 @@ async def process_language_callback(callback: CallbackQuery, state: FSMContext, 
         
         # 3. Отвечаем пользователю
         lang_name = get_text(['settings', f'language_{lang}'])
-        
         await callback.answer(get_text(['settings', 'language_changed'], lang=lang_name))
-        
+
         # 4. Устанавливаем состояние Settings.main СРАЗУ, чтобы кнопки работали
         await state.set_state(Settings.main)
-        
-        # 5. Обновляем сообщение с выбором языка (если оно есть)
-        try:
-            await callback.message.edit_text(
-                get_text(['settings', 'language_changed'], lang=lang_name),
-                parse_mode="HTML",
-                reply_markup=get_back_to_settings_kb(get_text)
-            )
-            logger.info(f"✅ Сообщение с выбором языка обновлено, добавлена кнопка 'Назад'")
-        except Exception as e:
-            # Если не удалось обновить (сообщение уже изменено), просто отвечаем
-            logger.warning(f"⚠️ Не удалось обновить сообщение с выбором языка: {e}")
-            # Отправляем новое сообщение с кнопкой "Назад"
-            await callback.message.answer(
-                get_text(['settings', 'language_changed'], lang=lang_name),
-                parse_mode="HTML",
-                reply_markup=get_back_to_settings_kb(get_text)
-            )
-        
-        # 6. Отправляем новое меню настроек
-        await callback.message.answer(
-            get_text(['settings', 'title'], lang=lang_name),
-            parse_mode="HTML",
-            reply_markup=get_settings_menu(get_text)
-        )
-        
-        # 7. Отправляем обновленное главное меню
-        await callback.message.answer(
-            get_text(['common', 'menu']),
-            parse_mode="HTML",
-            reply_markup=get_main_menu(get_text)
+
+        # 5. Обновляем меню настроек с новым языком (в том же сообщении)
+        await update_or_send_menu(
+            bot=callback.bot,
+            chat_id=callback.from_user.id,
+            text=get_text(['settings', 'title'], lang=lang_name),
+            keyboard=get_settings_menu_inline(get_text),
+            state=state
         )
         
     except Exception as e:
@@ -271,26 +267,38 @@ async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, sessio
             await redis_client.flush()
         except:
             pass
-        
-        await callback.message.edit_text(
-            get_text(['settings', 'delete_success']),
+
+        # Отправляем НОВОЕ сообщение об успехе
+        success_msg = await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text=get_text(['settings', 'delete_success']),
             parse_mode="HTML"
         )
-        await callback.message.answer(
-            get_text(['common', 'menu']),
+        logger.info(f"📤 Отправлено сообщение об удалении данных: {success_msg.message_id}")
+
+        # Отправляем НОВОЕ главное меню
+        main_menu_msg = await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text=get_text(['common', 'menu']),
             parse_mode="HTML",
-            reply_markup=get_main_menu(get_text)
+            reply_markup=get_main_menu_inline(get_text)
         )
+        logger.info(f"📤 Отправлено новое главное меню: {main_menu_msg.message_id}")
+
+        # Сохраняем новый message_id в состоянии
+        await state.update_data({MENU_MESSAGE_ID_KEY: main_menu_msg.message_id})
         await state.clear()
         
     except Exception as e:
         await session.rollback()
         logger.error(f"❌ Ошибка при удалении данных пользователя {user_id}: {e}")
-        await callback.message.edit_text(
-            get_text(['settings', 'delete_error'], error=str(e)[:200]),
+        # Отправляем сообщение об ошибке
+        await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text=get_text(['settings', 'delete_error'], error=str(e)[:200]),
             parse_mode="HTML"
         )
-    
+
     await callback.answer()
 
 
@@ -298,23 +306,23 @@ async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, sessio
 async def cancel_delete_data(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: GetTextFunc):
     """Отмена удаления данных"""
     user_id = callback.from_user.id
-    
+
     # Получаем текущий язык пользователя из БД
     stmt = select(UserPreferences).where(UserPreferences.user_id == user_id)
     result = await session.execute(stmt)
     prefs = result.scalar_one_or_none()
-    
+
     # Определяем язык для отображения
     current_lang = prefs.language if prefs else 'en'
     lang_display = get_text(['settings', 'language_ru']) if current_lang == "ru" else get_text(['settings', 'language_en'])
-    
-    await callback.message.edit_text(
-        get_text(['settings', 'delete_cancelled'])
-    )
-    await callback.message.answer(
-        get_text(['settings', 'title'], lang=lang_display),
-        parse_mode="HTML",
-        reply_markup=get_settings_menu(get_text)
+
+    # Возвращаемся в меню настроек через update_or_send_menu (сообщение обновляется)
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['settings', 'title'], lang=lang_display),
+        keyboard=get_settings_menu_inline(get_text),
+        state=state
     )
     await state.set_state(Settings.main)
     await callback.answer()
@@ -341,19 +349,63 @@ async def back_to_settings(callback: CallbackQuery, state: FSMContext, session: 
     get_text = i18n.get
     
     lang_display = get_text(['settings', 'language_ru']) if current_lang == "ru" else get_text(['settings', 'language_en'])
-    
-    try:
-        await callback.message.delete()
-    except Exception as e:
-        logger.warning(f"Не удалось удалить сообщение: {e}")
-    
-    await callback.message.answer(
-        get_text(['settings', 'title'], lang=lang_display),
-        parse_mode="HTML",
-        reply_markup=get_settings_menu(get_text)
+
+    # Возвращаемся в меню настроек через update_or_send_menu
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['settings', 'title'], lang=lang_display),
+        keyboard=get_settings_menu_inline(get_text),
+        state=state
     )
     await state.set_state(Settings.main)
     await callback.answer()
 
+
+# ========== ОБРАБОТЧИКИ CALLBACK_QUERY ДЛЯ НАСТРОЕК ==========
+@router.callback_query(F.data == "settings_lang")
+async def on_settings_lang(callback: CallbackQuery, state: FSMContext, get_text: GetTextFunc):
+    """Обработчик кнопки "Язык" в настройках"""
+    from bot.keyboards import get_language_menu
+
+    await callback.answer()
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['keyboards', 'language_menu', 'prompt']),
+        keyboard=get_language_menu(get_text),
+        state=state
+    )
+    await state.set_state(Settings.language)
+
+
+@router.callback_query(F.data == "settings_delete")
+async def on_settings_delete(callback: CallbackQuery, state: FSMContext, get_text: GetTextFunc):
+    """Обработчик кнопки "Удалить данные" в настройках"""
+    from bot.keyboards import get_confirm_delete_kb
+
+    await callback.answer()
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['settings', 'delete_warning']),
+        keyboard=get_confirm_delete_kb(get_text),
+        state=state
+    )
+    await state.set_state(Settings.confirm_delete)
+
+
+@router.callback_query(F.data == "settings_back")
+async def on_settings_back(callback: CallbackQuery, state: FSMContext, get_text: GetTextFunc):
+    """Обработчик кнопки "Назад" в настройках"""
+    await callback.answer()
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['common', 'menu']),
+        keyboard=get_main_menu_inline(get_text),
+        state=state
+    )
+    await state.clear()
 
 

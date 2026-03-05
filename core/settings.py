@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     USER_AGENT: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     REQUEST_TIMEOUT: int = 10
 
+    # ✅ RATE LIMITING настройки
+    RATE_LIMIT_TELEGRAM_TOKENS: int = 20  # Ёмкость ведра Telegram
+    RATE_LIMIT_TELEGRAM_REFILL: float = 10.0  # Токенов в секунду (Telegram)
+    RATE_LIMIT_YOUTUBE_TOKENS: int = 5  # Ёмкость ведра YouTube
+    RATE_LIMIT_YOUTUBE_REFILL: float = 1.0  # Токенов в секунду (YouTube)
+    RATE_LIMIT_GLOBAL_PER_MINUTE: int = 60  # Глобальный лимит запросов в минуту
+
     @property
     def database_url_async(self) -> str:
         if self.DATABASE_URL:

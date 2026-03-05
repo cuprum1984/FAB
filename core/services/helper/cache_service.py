@@ -3,7 +3,7 @@
 Версия: 1.0 (14 февраля 2026)
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,16 +45,16 @@ async def save_media_to_cache(
                     file_unique_id=file_unique_id,
                     file_type=media['type'],
                     file_size=media.get('file_size'),
-                    created_at=datetime.utcnow(),
-                    expires_at=datetime.utcnow() + timedelta(days=30),  # живёт месяц
-                    last_used=datetime.utcnow()
+                    created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                    expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=30),  # живёт месяц
+                    last_used=datetime.now(timezone.utc).replace(tzinfo=None)
                 )
                 session.add(cached)
                 logger.debug(f"➕ Добавлено в общий кеш: {file_unique_id}")
             else:
                 # Обновляем last_used
-                cached.last_used = datetime.utcnow()
-        
+                cached.last_used = datetime.now(timezone.utc).replace(tzinfo=None)
+
         # 2. Сохраняем в личный кеш пользователя
         # Проверяем, не сохраняли ли уже это сообщение
         stmt = select(UserCachedMedia).where(
@@ -67,7 +67,7 @@ async def save_media_to_cache(
         )
         result = await session.execute(stmt)
         user_cached = result.scalar_one_or_none()
-        
+
         if not user_cached:
             # Создаём новую запись
             user_cached = UserCachedMedia(
@@ -78,9 +78,9 @@ async def save_media_to_cache(
                 file_unique_id=file_unique_id,
                 file_type=media['type'],
                 file_size=media.get('file_size'),
-                created_at=datetime.utcnow(),
-                expires_at=datetime.utcnow() + timedelta(days=30),
-                last_accessed=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=30),
+                last_accessed=datetime.now(timezone.utc).replace(tzinfo=None),
                 caption=caption,
                 post_url=post_url
             )
@@ -88,7 +88,7 @@ async def save_media_to_cache(
             logger.debug(f"➕ Добавлено в личный кеш пользователя {user_id}: {file_unique_id}")
         else:
             # Обновляем last_accessed
-            user_cached.last_accessed = datetime.utcnow()
+            user_cached.last_accessed = datetime.now(timezone.utc).replace(tzinfo=None)
         
         await session.commit()
         

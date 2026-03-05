@@ -39,6 +39,8 @@ class I18nMiddleware(BaseMiddleware):
 
         i18n = create_i18n(language_code)
         data['i18n'] = i18n
-        data['get_text'] = i18n.get # Пробрасываем функцию напрямую для удобства
+        data['get_text'] = i18n.get  # Пробрасываем функцию напрямую для удобства
         
+        logger.debug(f"🌐 I18nMiddleware: language={language_code}, get_text={data['get_text'] is not None}, event_type={type(event).__name__}")
+
         return await handler(event, data)

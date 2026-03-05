@@ -158,6 +158,9 @@ tests/__pycache__/
 .qwen/
 t_aiohttp.py
 t_dns/
+test_del_topic.py
+test_topic_edit.py
+test_topic_silent.py
 
 # Spyder project settings
 .spyderproject

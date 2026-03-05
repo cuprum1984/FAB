@@ -56,7 +56,7 @@ MESSAGES = {
         "menu": "🏠 <b>Main Menu</b>",
         "error": "❌ An error occurred. Please try again later.",
     },
-    
+
     # ========== REFRESH (common.py) ==========
     "refresh": {
         "success": "🔄 <b>Interface refreshed, {first_name}!</b>\n\n"
@@ -66,7 +66,12 @@ MESSAGES = {
                    #"• /list — my sources\n"
                    #"• /help — help",
     },
-    
+
+    # ========== TOPIC CHECK (topic_checker.py) ==========
+    "topic_check": {
+        "message": "🤗 Checking...",
+    },
+
     # ========== KEYBOARDS (keyboards.py) ==========
     "keyboards": {
         # Main menu
@@ -102,6 +107,17 @@ MESSAGES = {
             "placeholder": "Choose a group...",
             "active_prefix": "✅",
             "inactive_prefix": "❌",
+            "prev": "◀️ Back",
+            "next": "Next ▶️",
+            "cancel": "❌ Cancel",
+            "dot": ".",
+        },
+
+        "topics_menu": {
+            "prev": "◀️ Back",
+            "next": "Next ▶️",
+            "back": "← Back",
+            "dot": ".",
         },
         
         # Destinations menu (groups/topics)
@@ -119,12 +135,17 @@ MESSAGES = {
             "prev": "◀️ Back",
             "next": "Forward ▶️",
             "noop": "⏺️",
+            "dot": ".",
         },
 
         # Cancel/back
         "cancel": "❌ Cancel",
         "back": "← Back",
+        "back_to_groups": "🔙 To groups",
+        "back_to_topics": "🔙 To topics",
+        "back_to_sources": "🔙 To sources",
         "back_to_settings": "← Back to settings",
+        "back_to_main": "🔙 To main menu",
         
         # Confirmations
         "confirm_add": "✅ Yes, add",
@@ -156,12 +177,13 @@ MESSAGES = {
         # Sources list
         "sources_list": {
             "view_source": "📰 {name}",
-            "delete": "❌ Delete",
+            "delete": "❌",
             "prev": "◀️ Back",
             "next": "Next ▶️",
             "close": "❌ Close",
             "page": "{current}/{total}",
             "noop": "⏺️",
+            "dot": ".",
         },
     },
     

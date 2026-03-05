@@ -37,7 +37,8 @@ from core.utils.i18n import create_i18n
 # 👇 Middleware
 from bot.middlewares import DBSessionMiddleware
 from bot.middlewares.i18n import I18nMiddleware
-from bot.middlewares.group_filter import GroupCommandFilterMiddleware  # 👈 НОВЫЙ
+from bot.middlewares.group_filter import GroupCommandFilterMiddleware
+from bot.middlewares.callback_filter import CallbackQueryFilterMiddleware  # 👈 НОВЫЙ
 
 # Импортируем хендлеры
 from bot.handlers import (
@@ -45,6 +46,8 @@ from bot.handlers import (
     sources,
     admin,
     topics_auto,
+    settings_handler,
+    my_sources_interactive,
 )
 
 # Настройка логирования
@@ -289,22 +292,26 @@ async def main():
     )
     
     dp = Dispatcher(storage=storage)
-    
+
     # 👇 ВАЖНО: ПРАВИЛЬНЫЙ ПОРЯДОК MIDDLEWARE 👇
     dp.message.middleware(DBSessionMiddleware())      # 1. Сначала БД
     dp.callback_query.middleware(DBSessionMiddleware())  # 1. Для callback тоже БД
-    dp.message.middleware(GroupCommandFilterMiddleware())  # 👈 НОВЫЙ
+    dp.message.middleware(GroupCommandFilterMiddleware())  # 👈 Команды в группах/ЛС
+    dp.callback_query.middleware(CallbackQueryFilterMiddleware())  # 👈 Callback только в ЛС
     dp.message.middleware(I18nMiddleware())           # 2. Потом i18n для сообщений
     dp.callback_query.middleware(I18nMiddleware())    # 3. И для callback (ОДИН РАЗ!)
-    logger.info("[OK] Middleware для БД и i18n подключены")
-    
+    logger.info("[OK] Middleware для БД, i18n и фильтрации подключены")
+
     # Подключаем роутеры
-    dp.include_router(common.router)      # сначала общие     # потом источники
-    dp.include_router(admin.router)     # админка
-    dp.include_router(sources.router)  
-    dp.include_router(topics_auto.router) # авто-сохранение тем
-    dp.include_router(settings_handler.router) # настройки
-    
+    dp.include_router(common.router)
+    dp.include_router(my_sources_interactive.router)  # Интерактивные источники (РАНЬШЕ sources!)
+    dp.include_router(sources.router)
+    dp.include_router(admin.router)
+    dp.include_router(topics_auto.forum_router)  # Служебные события тем
+    dp.include_router(topics_auto.router)  # Обычные сообщения
+    dp.include_router(settings_handler.router)  # Настройки
+    logger.info("[OK] Роутеры подключены")
+
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
 

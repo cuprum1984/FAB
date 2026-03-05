@@ -5,10 +5,12 @@ Redis клиент для MyAggryBot.
 Изменения:
 - Добавлена персистентность для FakeRedis через файл
 - Улучшена обработка ошибок
+- Добавлена проверка TTL для FileFakeRedis
 """
 import os
 import json
 import logging
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -60,8 +62,27 @@ class FileFakeRedis:
             logger.error(f"❌ Ошибка сохранения в файл: {e}")
     
     async def get(self, key: str) -> Optional[str]:
-        """Получить значение по ключу"""
-        value = self.data.get(key)
+        """Получить значение по ключу с проверкой TTL"""
+        item = self.data.get(key)
+        if item is None:
+            logger.debug(f"📖 GET {key}: None (не найден)")
+            return None
+        
+        # Проверяем TTL
+        if isinstance(item, dict) and 'expires_at' in item:
+            try:
+                expires_at = datetime.fromisoformat(item['expires_at'])
+                if datetime.now() > expires_at:
+                    # Кэш устарел - удаляем
+                    del self.data[key]
+                    self._save()
+                    logger.debug(f"📖 GET {key}: None (истёк TTL)")
+                    return None
+            except Exception as e:
+                logger.debug(f"⚠️ Ошибка проверки TTL для {key}: {e}")
+        
+        # Получаем значение
+        value = item.get('value') if isinstance(item, dict) else item
         logger.debug(f"📖 GET {key}: {value}")
         return value
     
@@ -70,10 +91,10 @@ class FileFakeRedis:
         self.data[key] = {
             'value': value,
             'ttl': ttl,
-            'expires_at': None  # в простой реализации игнорируем TTL
+            'expires_at': (datetime.now() + timedelta(seconds=ttl)).isoformat()
         }
         self._save()
-        logger.debug(f"📝 SET {key}: {value}")
+        logger.debug(f"📝 SET {key}: {value} (TTL={ttl}с)")
     
     async def delete(self, key: str):
         """Удалить ключ"""
@@ -81,11 +102,186 @@ class FileFakeRedis:
             del self.data[key]
             self._save()
             logger.debug(f"🗑️ DELETE {key}")
-    
+
+    async def exists(self, key: str) -> bool:
+        """Проверить существование ключа"""
+        return key in self.data
+
+    async def flushall(self):
+        """Очистить все данные"""
+        self.data.clear()
+        self._save()
+        logger.info("🧹 FLUSHALL - все данные удалены")
+
+    async def keys(self, pattern: str = "*"):
+        """Получить все ключи по паттерну"""
+        if pattern == "*":
+            return list(self.data.keys())
+        # Простая реализация для паттернов
+        import fnmatch
+        return [k for k in self.data.keys() if fnmatch.fnmatch(k, pattern)]
+
     async def ping(self) -> bool:
         """Проверить соединение"""
         return True
-    
+
+    async def hset(self, key: str, mapping: dict = None, **kwargs):
+        """Установить значение hash"""
+        if key not in self.data:
+            self.data[key] = {}
+        if mapping:
+            self.data[key].update(mapping)
+        self.data[key].update(kwargs)
+        self._save()
+
+    async def hgetall(self, key: str) -> dict:
+        """Получить все значения hash"""
+        return self.data.get(key, {})
+
+    async def incr(self, key: str) -> int:
+        """Увеличить значение на 1"""
+        if key not in self.data:
+            self.data[key] = 0
+        self.data[key] = int(self.data[key]) + 1
+        self._save()
+        return self.data[key]
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        """Установить TTL для ключа"""
+        if key in self.data:
+            if isinstance(self.data[key], dict):
+                self.data[key]['ttl'] = seconds
+                self.data[key]['expires_at'] = (datetime.now() + timedelta(seconds=seconds)).isoformat()
+            else:
+                self.data[key] = {
+                    'value': self.data[key],
+                    'ttl': seconds,
+                    'expires_at': (datetime.now() + timedelta(seconds=seconds)).isoformat()
+                }
+            self._save()
+        return True
+
+    async def setex(self, key: str, ttl: int, value: str):
+        """Установить значение с TTL"""
+        self.data[key] = {
+            'value': value,
+            'ttl': ttl,
+            'expires_at': (datetime.now() + timedelta(seconds=ttl)).isoformat()
+        }
+        self._save()
+        logger.debug(f"📝 SET {key}: {value} (TTL={ttl}с)")
+
+    async def lock(self, key: str, timeout: int = 10):
+        """Заглушка для lock (в FileFakeRedis нет реальной блокировки)"""
+        class FakeLock:
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                pass
+        return FakeLock()
+
+    async def zadd(self, key: str, mapping: dict):
+        """Добавить элементы в sorted set"""
+        if key not in self.data:
+            self.data[key] = []
+        for member, score in mapping.items():
+            self.data[key].append({'member': member, 'score': score})
+        self._save()
+
+    async def zremrangebyscore(self, key: str, min_score: float, max_score: float):
+        """Удалить элементы из sorted set по диапазону"""
+        if key in self.data and isinstance(self.data[key], list):
+            self.data[key] = [
+                item for item in self.data[key]
+                if item.get('score', 0) < min_score or item.get('score', 0) > max_score
+            ]
+            self._save()
+
+    async def zcard(self, key: str) -> int:
+        """Получить количество элементов в sorted set"""
+        if key in self.data and isinstance(self.data[key], list):
+            return len(self.data[key])
+        return 0
+
+    async def zrange(self, key: str, start: int, end: int, withscores: bool = False):
+        """Получить элементы из sorted set по диапазону"""
+        if key in self.data and isinstance(self.data[key], list):
+            items = sorted(self.data[key], key=lambda x: x.get('score', 0))[start:end+1 if end >= 0 else None]
+            if withscores:
+                return [(item['member'], item['score']) for item in items]
+            return [item['member'] for item in items]
+        return []
+
+    async def ttl(self, key: str) -> int:
+        """Получить TTL ключа"""
+        if key not in self.data:
+            return -2  # Ключ не существует
+        
+        item = self.data[key]
+        if isinstance(item, dict) and 'expires_at' in item:
+            try:
+                expires_at = datetime.fromisoformat(item['expires_at'])
+                if datetime.now() > expires_at:
+                    return -2  # Истёк
+                ttl = int((expires_at - datetime.now()).total_seconds())
+                return max(0, ttl)
+            except:
+                pass
+        
+        return -1  # Без TTL
+
+    async def lpush(self, key: str, *values):
+        """Добавить элементы в список слева"""
+        if key not in self.data:
+            self.data[key] = []
+        for value in reversed(values):
+            self.data[key].insert(0, value)
+        self._save()
+        return len(self.data[key])
+
+    async def rpop(self, key: str):
+        """Удалить и получить элемент из списка справа"""
+        if key in self.data and isinstance(self.data[key], list) and len(self.data[key]) > 0:
+            value = self.data[key].pop()
+            self._save()
+            return value
+        return None
+
+    async def llen(self, key: str) -> int:
+        """Получить длину списка"""
+        if key in self.data and isinstance(self.data[key], list):
+            return len(self.data[key])
+        return 0
+
+    async def lrange(self, key: str, start: int, end: int):
+        """Получить элементы списка по диапазону"""
+        if key in self.data and isinstance(self.data[key], list):
+            return self.data[key][start:end+1 if end >= 0 else None]
+        return []
+
+    async def brpop(self, keys, timeout: int = 0):
+        """Блокирующее получение из списка справа"""
+        import asyncio
+        
+        # Для FileFakeRedis просто проверяем первый ключ
+        if isinstance(keys, list):
+            key = keys[0]
+        else:
+            key = keys
+        
+        if key in self.data and isinstance(self.data[key], list) and len(self.data[key]) > 0:
+            value = self.data[key].pop()
+            self._save()
+            return (key, value)
+        
+        # Если timeout = 0, возвращаем None сразу
+        if timeout == 0:
+            return None
+        
+        # Иначе ждём (эмуляция)
+        await asyncio.sleep(min(timeout, 1))
+        return None
+
     async def close(self):
         """Закрыть соединение"""
         self._save()
