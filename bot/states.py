@@ -5,7 +5,8 @@ class AddChannel(StatesGroup):
     """Состояния для добавления канала"""
     waiting_for_username = State()  # Ожидание ввода username/ссылки
     confirm_channel = State()       # Подтверждение добавления
-    choose_destination = State()    # Выбор группы/темы
+    choose_group = State()          # Выбор группы
+    choose_destination = State()    # Выбор темы в группе
     edit_title = State()            # Редактирование названия (опционально)
 
 
@@ -50,3 +51,8 @@ class MySources(StatesGroup):
     viewing_groups = State()    # Просмотр списка групп
     viewing_topics = State()    # Просмотр списка топиков
     viewing_sources = State()   # Просмотр списка источников
+
+
+class Overview(StatesGroup):
+    """Состояния для обзора источников (/mytopics)"""
+    viewing = State()  # Просмотр обзора

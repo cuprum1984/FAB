@@ -6,6 +6,7 @@
 - Убран конфликтующий дебаг-хендлер
 - Чистая структура
 """
+import asyncio
 import logging
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -16,7 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models import TelegramAccount, UserPreferences
 from bot.keyboards import get_main_menu_inline
-from bot.utils.menu_message import update_or_send_menu, clear_menu_message, MENU_MESSAGE_ID_KEY
+from bot.utils.menu_message import (
+    update_or_send_menu,
+    clear_menu_message,
+    MENU_MESSAGE_ID_KEY,
+    send_menu_message,
+    delete_after_delay
+)
 from aiogram import Bot
 
 logger = logging.getLogger(__name__)
@@ -278,17 +285,14 @@ async def on_menu_sources(callback: CallbackQuery, state: FSMContext, session: A
     )
 
 
-@router.callback_query(F.data == "menu_feed")
-async def on_menu_feed(callback: CallbackQuery, state: FSMContext, get_text: callable):
-    """Обработчик кнопки "Лента" """
+@router.callback_query(F.data == "menu_overview")
+async def on_menu_overview(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Обработчик кнопки "Обзор" — показывает все группы, топики и источники """
     await callback.answer()
-    await update_or_send_menu(
-        bot=callback.bot,
-        chat_id=callback.from_user.id,
-        text="📰 <b>Лента</b>\n\nИспользуйте команду /feed для просмотра ленты.",
-        keyboard=get_main_menu_inline(get_text),
-        state=state
-    )
+    
+    # Запускаем процесс обзора (обновляет текущее message_id)
+    from bot.handlers.my_overview import start_overview
+    await start_overview(callback.bot, callback.from_user.id, session, state, get_text)
 
 
 @router.callback_query(F.data == "menu_help")
@@ -321,17 +325,35 @@ async def on_menu_settings(callback: CallbackQuery, state: FSMContext, get_text:
 
 @router.callback_query(F.data == "menu_refresh")
 async def on_menu_refresh(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
-    """Обработчик кнопки "Обновить" """
+    """Обработчик кнопки "Обновить" — создаёт новое сообщение вместо старого"""
     await callback.answer()
-    await state.clear()
     
+    # Получаем текущий message_id перед очисткой состояния
+    data = await state.get_data()
+    old_message_id = data.get("_menu_message_id")
+    
+    # Очищаем состояние
+    await state.clear()
+
     user = callback.from_user
     first_name = user.first_name or "User"
-    
-    await update_or_send_menu(
+
+    # Отправляем НОВОЕ сообщение (не редактируем!)
+    new_message_id = await send_menu_message(
         bot=callback.bot,
         chat_id=callback.from_user.id,
         text=get_text(['refresh', 'success'], first_name=first_name),
         keyboard=get_main_menu_inline(get_text),
         state=state
     )
+    
+    # Удаляем старое сообщение с задержкой 2 секунды
+    if old_message_id:
+        asyncio.create_task(delete_after_delay(
+            bot=callback.bot,
+            chat_id=callback.from_user.id,
+            message_id=old_message_id,
+            delay=2
+        ))
+    
+    logger.info(f"🔄 Обновление меню: старое {old_message_id} → новое {new_message_id}")

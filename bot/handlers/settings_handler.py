@@ -56,6 +56,9 @@ SETTINGS_BUTTONS = [
 @router.callback_query(
     ~F.data.startswith("set_lang:") &
     ~(F.data == "back_to_settings") &
+    ~(F.data == "settings_back") &
+    ~(F.data == "settings_lang") &
+    ~(F.data == "settings_delete") &
     ~F.data.startswith("list_") &  # Исключаем list_group, list_topic, list_back
     ~F.data.startswith("del_source:") &  # Исключаем del_source (из sources.py)
     ~F.data.startswith("del_sub:")  # Исключаем del_sub (из my_sources_interactive.py)
@@ -72,27 +75,27 @@ async def debug_callbacks(callback: CallbackQuery):
 async def cmd_settings(message: Message, state: FSMContext, session: AsyncSession, get_text: GetTextFunc):
     """Показать меню настроек"""
     user_id = message.from_user.id
-    
+
     # Получаем или создаем настройки пользователя
     stmt = select(UserPreferences).where(UserPreferences.user_id == user_id)
     result = await session.execute(stmt)
     prefs = result.scalar_one_or_none()
-    
+
     if not prefs:
         prefs = UserPreferences(user_id=user_id, language='en')
         session.add(prefs)
         await session.commit()
-    
+
     # Текущий язык
     lang_display = get_text(['settings', 'language_ru']) if prefs.language == "ru" else get_text(['settings', 'language_en'])
 
+    # Используем update_or_send_menu без fallback_message — обновляет текущее message_id
     await update_or_send_menu(
         bot=message.bot,
         chat_id=user_id,
         text=get_text(['settings', 'title'], lang=lang_display),
         keyboard=get_settings_menu_inline(get_text),
-        state=state,
-        fallback_message=message
+        state=state
     )
     await state.set_state(Settings.main)
 
@@ -127,8 +130,7 @@ async def settings_main_menu(message: Message, state: FSMContext, get_text: GetT
             chat_id=message.from_user.id,
             text=get_text(['common', 'menu']),
             keyboard=get_main_menu_inline(get_text),
-            state=state,
-            fallback_message=message
+            state=state
         )
         await state.clear()
         return
@@ -140,21 +142,20 @@ async def settings_main_menu(message: Message, state: FSMContext, get_text: GetT
             chat_id=message.from_user.id,
             text=get_text(['keyboards', 'language_menu', 'prompt']),
             keyboard=get_language_menu(get_text),
-            state=state,
-            fallback_message=message
+            state=state
         )
         await state.set_state(Settings.language)
         return
 
     # 3. Кнопка "Удалить данные" → подтверждение
     if text in delete_texts:
+        # Используем update_or_send_menu без fallback_message — обновляет текущее message_id
         await update_or_send_menu(
             bot=message.bot,
             chat_id=message.from_user.id,
             text=get_text(['settings', 'delete_warning']),
             keyboard=get_confirm_delete_kb(get_text),
-            state=state,
-            fallback_message=message
+            state=state
         )
         await state.set_state(Settings.confirm_delete)
         return

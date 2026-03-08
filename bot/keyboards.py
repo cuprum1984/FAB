@@ -24,7 +24,7 @@ def get_main_menu(get_text: GetTextFunc) -> ReplyKeyboardMarkup:
         # Получаем тексты из локализации
         btn_add = get_text(['keyboards', 'main_menu', 'add_channel'])
         btn_sources = get_text(['keyboards', 'main_menu', 'my_sources'])
-        btn_feed = get_text(['keyboards', 'main_menu', 'my_feed'])
+        btn_overview = get_text(['keyboards', 'main_menu', 'overview'])
         btn_settings = get_text(['keyboards', 'main_menu', 'settings'])
         btn_help = get_text(['keyboards', 'main_menu', 'help'])
         btn_refresh = get_text(['keyboards', 'main_menu', 'refresh'])
@@ -34,7 +34,7 @@ def get_main_menu(get_text: GetTextFunc) -> ReplyKeyboardMarkup:
         logger.error(f"Ошибка локализации меню: {e}")
         # Запасной вариант (Fallback)
         btn_add, btn_sources = "✚ Добавить", "📚 Источники"
-        btn_feed = "📰 Лента"
+        btn_overview = "📰 Обзор"
         btn_settings, btn_help = "⚙️ Настройки", "❓ Помощь"
         #btn_admin_panel = "👨‍💼 Админ-панель"
         btn_refresh = "🔄 Обновить"
@@ -42,7 +42,7 @@ def get_main_menu(get_text: GetTextFunc) -> ReplyKeyboardMarkup:
 
     # Строим сетку кнопок
     builder.row(KeyboardButton(text=btn_add), KeyboardButton(text=btn_sources))
-    builder.row(KeyboardButton(text=btn_feed), KeyboardButton(text=btn_help))
+    builder.row(KeyboardButton(text=btn_overview), KeyboardButton(text=btn_help))
     builder.row(KeyboardButton(text=btn_settings), KeyboardButton(text=btn_refresh)) #KeyboardButton(text=btn_admin_panel)
 
     # .as_markup() ОБЯЗАТЕЛЬНО должен быть с resize_keyboard=True
@@ -63,7 +63,7 @@ def get_main_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
         # Получаем тексты из локализации
         btn_add = get_text(['keyboards', 'main_menu', 'add_channel'])
         btn_sources = get_text(['keyboards', 'main_menu', 'my_sources'])
-        btn_feed = get_text(['keyboards', 'main_menu', 'my_feed'])
+        btn_overview = get_text(['keyboards', 'main_menu', 'overview'])
         btn_settings = get_text(['keyboards', 'main_menu', 'settings'])
         btn_help = get_text(['keyboards', 'main_menu', 'help'])
         btn_refresh = get_text(['keyboards', 'main_menu', 'refresh'])
@@ -71,7 +71,7 @@ def get_main_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
         logger.error(f"Ошибка локализации меню: {e}")
         # Запасной вариант (Fallback)
         btn_add, btn_sources = "✚ Добавить", "📚 Источники"
-        btn_feed = "📰 Лента"
+        btn_overview = "📰 Обзор"
         btn_settings, btn_help = "⚙️ Настройки", "❓ Помощь"
         btn_refresh = "🔄 Обновить"
 
@@ -81,7 +81,7 @@ def get_main_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text=btn_sources, callback_data="menu_sources")
     )
     builder.row(
-        InlineKeyboardButton(text=btn_feed, callback_data="menu_feed"),
+        InlineKeyboardButton(text=btn_overview, callback_data="menu_overview"),
         InlineKeyboardButton(text=btn_help, callback_data="menu_help")
     )
     builder.row(
@@ -309,7 +309,8 @@ def get_groups_inline_kb(
     page: int = 0,
     page_size: int = 5,
     get_text: Optional[GetTextFunc] = None,
-    back_callback: str = "back_to_main"
+    back_callback: str = "back_to_main",
+    mode: str = "list"  # "list" для просмотра, "add" для добавления канала
 ) -> InlineKeyboardMarkup:
     """
     Inline-клавиатура для выбора групп с пагинацией.
@@ -325,6 +326,7 @@ def get_groups_inline_kb(
         page_size: Количество групп на странице
         get_text: Функция локализации
         back_callback: Callback_data для кнопки "Назад" (по умолчанию "back_to_main")
+        mode: "list" для просмотра источников, "add" для добавления канала
     """
     if not get_text:
         def get_text(keys: List[str], **kwargs) -> str:
@@ -355,11 +357,17 @@ def get_groups_inline_kb(
     for group in page_groups:
         chat_id = group["chat_id"]
         chat_title = (group.get("chat_title") or f"Группа {chat_id}")[:30]
+        
+        # Разный callback_data для режима просмотра и добавления
+        if mode == "add":
+            callback_data = f"dest_group:{chat_id}"
+        else:
+            callback_data = f"list_group:{chat_id}"
 
         builder.row(
             InlineKeyboardButton(
                 text=f"👥 {chat_title}",
-                callback_data=f"list_group:{chat_id}"
+                callback_data=callback_data
             )
         )
 
@@ -403,7 +411,8 @@ def get_topics_inline_kb(
     page: int = 0,
     page_size: int = 5,
     get_text: Optional[GetTextFunc] = None,
-    back_callback: str = "list_back:groups"
+    back_callback: str = "list_back:groups",
+    mode: str = "list"  # "list" для просмотра, "add" для добавления канала
 ) -> InlineKeyboardMarkup:
     """
     Inline-клавиатура для выбора топиков с пагинацией.
@@ -420,6 +429,7 @@ def get_topics_inline_kb(
         page_size: Количество топиков на странице
         get_text: Функция локализации
         back_callback: Callback_data для кнопки "Назад к группам"
+        mode: "list" для просмотра источников, "add" для добавления канала
     """
     import hashlib
 
@@ -460,11 +470,17 @@ def get_topics_inline_kb(
         topic_name = (topic.get("topic_name") or "Без названия")[:30]
         # Короткий хеш (8 символов) для callback_data
         topic_hash = hashlib.md5(topic.get('topic_identifier', '').encode()).hexdigest()[:8]
+        
+        # Разный callback_data для режима просмотра и добавления
+        if mode == "add":
+            callback_data = f"dest_topic:{topic_hash}"
+        else:
+            callback_data = f"list_topic:{topic_hash}"
 
         builder.row(
             InlineKeyboardButton(
                 text=f"🗨️ {topic_name}",
-                callback_data=f"list_topic:{topic_hash}"
+                callback_data=callback_data
             )
         )
 
@@ -475,9 +491,15 @@ def get_topics_inline_kb(
     next_text = get_text(['keyboards', 'topics_menu', 'next']) if get_text else 'Вперед ▶️'
     dot_text = get_text(['keyboards', 'topics_menu', 'dot']) if get_text else '.'
 
+    # Разный callback_data для режима просмотра и добавления
+    if mode == "add":
+        page_prefix = "dest_topics_page"
+    else:
+        page_prefix = "topics_page"
+
     # Кнопка "Назад" или заглушка
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton(text=prev_text, callback_data=f"topics_page:{page-1}"))
+        nav_buttons.append(InlineKeyboardButton(text=prev_text, callback_data=f"{page_prefix}:{page-1}"))
     else:
         nav_buttons.append(InlineKeyboardButton(text=dot_text, callback_data="noop"))
 
@@ -487,7 +509,7 @@ def get_topics_inline_kb(
 
     # Кнопка "Вперед" или заглушка
     if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton(text=next_text, callback_data=f"topics_page:{page+1}"))
+        nav_buttons.append(InlineKeyboardButton(text=next_text, callback_data=f"{page_prefix}:{page+1}"))
     else:
         nav_buttons.append(InlineKeyboardButton(text=dot_text, callback_data="noop"))
 
@@ -619,7 +641,7 @@ def get_language_menu(get_text: GetTextFunc) -> InlineKeyboardMarkup:
     en_text = get_text(['keyboards', 'language_menu', 'en'])
     uk_text = get_text(['keyboards', 'language_menu', 'uk'])
     be_text = get_text(['keyboards', 'language_menu', 'be'])
-    back_text = get_text(['keyboards', 'language_menu', 'back'])
+    back_text = get_text(['keyboards', 'back_to_settings'])
 
     builder.row(
         InlineKeyboardButton(text=ru_text, callback_data="set_lang:ru"),
@@ -803,5 +825,74 @@ __all__ = [
     'get_confirm_delete_kb',
     'get_source_list_kb',
     'get_confirm_delete_source_kb',
+    'get_overview_kb',
     'GetTextFunc',
 ]
+
+
+def get_overview_kb(
+    overview_data: List[dict],
+    page: int = 0,
+    get_text: Optional[GetTextFunc] = None
+) -> InlineKeyboardMarkup:
+    """
+    Inline-клавиатура для обзора источников с пагинацией по группам.
+    
+    Структура:
+    - Кнопки навигации между страницами (5 групп на странице)
+    - Кнопка "Обновить" для обновления обзора
+    - Кнопка "В главное меню"
+    """
+    if not get_text:
+        def get_text(keys: List[str], **kwargs) -> str:
+            fallback_text = {
+                'prev': '◀️ Назад',
+                'next': 'Вперед ▶️',
+                'refresh': '🔄 Обновить',
+                'back_to_main': '🔙 В главное меню',
+                'noop': '⏺️',
+                'dot': '.'
+            }.get(keys[-1], keys[-1])
+            return fallback_text
+    
+    builder = InlineKeyboardBuilder()
+    
+    # Пагинация: 5 групп на страницу
+    groups_per_page = 5
+    total_pages = (len(overview_data) + groups_per_page - 1) // groups_per_page if overview_data else 1
+    page = max(0, min(page, total_pages - 1))
+    
+    # ===== НАВИГАЦИОННЫЕ КНОПКИ =====
+    nav_buttons = []
+    
+    prev_text = get_text(['keyboards', 'overview', 'prev']) if get_text else '◀️ Назад'
+    next_text = get_text(['keyboards', 'overview', 'next']) if get_text else 'Вперед ▶️'
+    refresh_text = get_text(['keyboards', 'main_menu', 'refresh']) if get_text else '🔄 Обновить'
+    back_text = get_text(['keyboards', 'back_to_main']) if get_text else '🔙 В главное меню'
+    dot_text = get_text(['keyboards', 'overview', 'dot']) if get_text else '.'
+    
+    # Кнопка "Назад" или заглушка
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton(text=prev_text, callback_data=f"overview_page:{page-1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text=dot_text, callback_data="noop"))
+    
+    # Счетчик страниц
+    page_indicator = f"{page + 1}/{total_pages}"
+    nav_buttons.append(InlineKeyboardButton(text=page_indicator, callback_data="noop"))
+    
+    # Кнопка "Вперед" или заглушка
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton(text=next_text, callback_data=f"overview_page:{page+1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text=dot_text, callback_data="noop"))
+    
+    builder.row(*nav_buttons)
+    
+    # ===== КНОПКИ ДЕЙСТВИЙ =====
+    builder.row(
+        InlineKeyboardButton(text=refresh_text, callback_data="menu_overview"),
+        InlineKeyboardButton(text=back_text, callback_data="back_to_main")
+    )
+    
+    return builder.as_markup()

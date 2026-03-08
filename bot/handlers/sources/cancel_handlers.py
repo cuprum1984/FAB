@@ -79,6 +79,94 @@ async def cancel_channel_username(callback: CallbackQuery, state: FSMContext, se
         await state.update_data({MENU_MESSAGE_ID_KEY: menu_message_id})
 
 
+@router.callback_query(AddChannel.choose_group, F.data == "cancel_add_channel")
+async def cancel_channel_group(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Отмена выбора группы — удаляем источник и возвращаемся в главное меню."""
+    await callback.answer()
+
+    # Получаем данные о созданном источнике
+    data = await state.get_data()
+    source_global_id = data.get("source_global_id")
+    source_created_now = data.get("source_created_now", False)
+
+    # Если источник был создан в этом сеансе — удаляем его
+    if source_created_now and source_global_id:
+        try:
+            stmt = delete(ContentSource).where(ContentSource.source_global_id == source_global_id)
+            await session.execute(stmt)
+            await session.commit()
+            logger.info(f"🗑️ Удалён источник {source_global_id} после отмены выбора группы")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"❌ Ошибка удаления источника {source_global_id}: {e}")
+
+    # Сохраняем текущий message_id перед очисткой
+    data = await state.get_data()
+    menu_message_id = data.get(MENU_MESSAGE_ID_KEY)
+
+    # Обновляем текущее сообщение на главное меню
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['common', 'menu']),
+        keyboard=get_main_menu_inline(get_text),
+        state=state
+    )
+
+    # Очищаем состояние, КРОМЕ message_id
+    await state.clear()
+
+    # Восстанавливаем message_id
+    if menu_message_id:
+        await state.update_data({MENU_MESSAGE_ID_KEY: menu_message_id})
+
+    logger.info(f"✅ Отмена добавления канала на этапе выбора группы")
+
+
+@router.callback_query(AddChannel.choose_destination, F.data == "cancel_add_channel")
+async def cancel_channel_destination(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Отмена выбора темы/группы — удаляем источник и возвращаемся в главное меню."""
+    await callback.answer()
+    
+    # Получаем данные о созданном источнике
+    data = await state.get_data()
+    source_global_id = data.get("source_global_id")
+    source_created_now = data.get("source_created_now", False)
+    
+    # Если источник был создан в этом сеансе — удаляем его
+    if source_created_now and source_global_id:
+        try:
+            stmt = delete(ContentSource).where(ContentSource.source_global_id == source_global_id)
+            await session.execute(stmt)
+            await session.commit()
+            logger.info(f"🗑️ Удалён источник {source_global_id} после отмены выбора темы")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"❌ Ошибка удаления источника {source_global_id}: {e}")
+    
+    # Сохраняем текущий message_id перед очисткой
+    data = await state.get_data()
+    menu_message_id = data.get(MENU_MESSAGE_ID_KEY)
+    
+    # Обновляем текущее сообщение на главное меню
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['common', 'menu']),
+        keyboard=get_main_menu_inline(get_text),
+        state=state
+    )
+    
+    # Очищаем состояние, КРОМЕ message_id
+    await state.clear()
+    
+    # Восстанавливаем message_id
+    if menu_message_id:
+        await state.update_data({MENU_MESSAGE_ID_KEY: menu_message_id})
+    
+    logger.info(f"✅ Отмена добавления канала на этапе выбора темы")
+
+
 @router.message(AddChannel.choose_destination)
 async def process_destination_choice(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
     """

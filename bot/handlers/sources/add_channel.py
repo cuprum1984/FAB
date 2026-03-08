@@ -12,7 +12,7 @@ from aiogram.types import Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.states import AddChannel
-from bot.keyboards import get_cancel_kb, get_main_menu_inline, get_destinations_inline_kb
+from bot.keyboards import get_cancel_kb, get_main_menu_inline, get_destinations_inline_kb, get_groups_inline_kb
 from bot.utils.menu_message import update_or_send_menu, delete_menu_message_with_delay, MENU_MESSAGE_ID_KEY
 from core.services.destination_service import get_user_groups, get_user_destinations
 from core.parser.telegram import check_channel_exists, get_channel_title
@@ -230,19 +230,19 @@ async def process_channel_username(message: Message, state: FSMContext, session:
             first_post_id=first_post_id
         )
 
-    # ========== ПРОВЕРКА ГРУПП И ОТПРАВКА ВЫБОРА ТЕМЫ ==========
+    # ========== ПРОВЕРКА ГРУПП И ОТПРАВКА ВЫБОРА ГРУППЫ ==========
     await process_channel_after_check(message, state, session, get_text, bot, is_youtube)
 
 
 async def process_channel_after_check(message: Message, state: FSMContext, session: AsyncSession, get_text: callable, bot, is_youtube: bool):
-    """Проверить группы и отправить выбор темы."""
+    """Проверить группы и отправить выбор ГРУППЫ (сначала), потом тем."""
     data = await state.get_data()
     source_type = data.get("source_type")
     source_global_id = data.get("source_global_id")
 
-    # Получаем все назначения
-    destinations = await get_user_destinations(message.from_user.id, session, only_existing_topics=False)
-    if not destinations:
+    # Получаем все группы пользователя
+    groups = await get_user_groups(message.from_user.id, session)
+    if not groups:
         await update_or_send_menu(
             bot=bot,
             chat_id=message.from_user.id,
@@ -263,44 +263,34 @@ async def process_channel_after_check(message: Message, state: FSMContext, sessi
         check_text
     )
 
-    # Фильтруем destinations
-    alive_topic_identifiers = {t.topic_identifier for t in alive_topics}
-    filtered_destinations = [
-        d for d in destinations
-        if d.get("topic_identifier") in alive_topic_identifiers
-    ]
-
-    # Сохраняем данные
+    # Сохраняем данные источника
     if source_type == "telegram":
         username = data.get("source_username")
         source_global_id = f"tg_channel_{username}"
         await state.update_data(
             source_global_id=source_global_id,
-            destinations=filtered_destinations,
             first_post=data.get("first_post"),
             first_post_id=data.get("first_post_id"),
             source_title=data.get("source_title"),
             source_username=username,
             source_type="telegram",
-            source_created_now=True
+            source_created_now=True,
+            alive_topic_identifiers={t.topic_identifier for t in alive_topics}
         )
     elif source_type == "youtube":
         channel_id = data.get("channel_id")
         source_global_id = f"yt_channel_{channel_id}"
         await state.update_data(
             source_global_id=source_global_id,
-            destinations=filtered_destinations,
             first_video=data.get("last_video"),
             first_video_id=data.get("last_video_id"),
             source_title=data.get("source_title"),
             channel_id=channel_id,
             youtube_username=data.get("youtube_username"),
             source_type="youtube",
-            source_created_now=True
+            source_created_now=True,
+            alive_topic_identifiers={t.topic_identifier for t in alive_topics}
         )
-
-    # Отправляем выбор темы
-    inline_kb = get_destinations_inline_kb(filtered_destinations, page=0, get_text=get_text)
 
     # 1. Удаляем старое сообщение через 2с
     await delete_menu_message_with_delay(
@@ -310,14 +300,16 @@ async def process_channel_after_check(message: Message, state: FSMContext, sessi
         delay=2
     )
 
-    # 2. Отправляем НОВОЕ сообщение с выбором темы
+    # 2. Отправляем НОВОЕ сообщение с выбором ГРУППЫ
+    inline_kb = get_groups_inline_kb(groups, page=0, get_text=get_text, back_callback="cancel_add_channel", mode="add")
+    
     new_msg = await bot.send_message(
         chat_id=message.from_user.id,
-        text=get_text(['sources', 'add_saved']),
+        text=get_text(['sources', 'add_select_group']),
         parse_mode="HTML",
         reply_markup=inline_kb
     )
 
-    # 3. Сохраняем новый message_id
+    # 3. Сохраняем новый message_id и переходим в состояние выбора группы
     await state.update_data({MENU_MESSAGE_ID_KEY: new_msg.message_id})
-    await state.set_state(AddChannel.choose_destination)
+    await state.set_state(AddChannel.choose_group)

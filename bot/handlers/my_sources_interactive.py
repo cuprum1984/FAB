@@ -214,18 +214,48 @@ async def on_group_selected(callback: CallbackQuery, session: AsyncSession, stat
     chat_id = int(callback.data.split(":")[1])
     logger.info(f"🔍 Выбрана группа: {chat_id}")
 
+    # Получаем user_id из callback, а не из состояния!
+    user_id = callback.from_user.id
+    
     data = await state.get_data()
-    user_id = data.get('user_id')
     groups = data.get('groups', [])
 
     logger.info(f"📊 Данные из состояния: user_id={user_id}, groups={len(groups) if groups else 0}")
+
+    # Если групп нет в состоянии, загружаем их заново
+    if not groups:
+        logger.info(f"🔄 Группы не найдены в состоянии, загружаем заново для пользователя {user_id}")
+        groups = await get_user_groups(user_id, session, only_existing_topics=True)
+        logger.info(f"📊 Загружено групп: {len(groups) if groups else 0}")
+        
+        if not groups:
+            logger.warning(f"⚠️ У пользователя {user_id} нет групп")
+            await callback.answer("❌ Нет групп", show_alert=True)
+            return
+        
+        # Сохраняем в состояние
+        await state.update_data(user_id=user_id, groups=groups, groups_page=0)
+        logger.info(f"✅ Сохранено в состояние: user_id={user_id}, groups={len(groups)}")
 
     # Находим выбранную группу
     group = next((g for g in groups if g["chat_id"] == chat_id), None)
     if not group:
         logger.warning(f"❌ Группа {chat_id} не найдена в состоянии")
-        await callback.answer("❌ Группа не найдена", show_alert=True)
-        return
+        # Пробуем найти группу напрямую из БД
+        group_stmt = select(ManagedGroup).where(ManagedGroup.telegram_chat_id == chat_id)
+        group_result = await session.execute(group_stmt)
+        group_db = group_result.scalar_one_or_none()
+        
+        if not group_db:
+            await callback.answer("❌ Группа не найдена", show_alert=True)
+            return
+        
+        # Используем данные из БД
+        group = {
+            "chat_id": group_db.telegram_chat_id,
+            "chat_title": group_db.telegram_chat_title or f"Группа {chat_id}"
+        }
+        logger.info(f"✅ Группа найдена в БД: {group['chat_title']}")
 
     # Получаем топики группы
     topics_stmt = select(GroupTopic).where(

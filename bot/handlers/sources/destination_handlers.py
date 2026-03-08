@@ -3,10 +3,13 @@ import logging
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.states import AddChannel
-from bot.keyboards import get_destinations_inline_kb, get_main_menu_inline
-from bot.utils.menu_message import update_or_send_menu
+from bot.keyboards import get_destinations_inline_kb, get_topics_inline_kb, get_main_menu_inline
+from bot.utils.menu_message import update_or_send_menu, delete_menu_message_with_delay, send_menu_message, MENU_MESSAGE_ID_KEY
+from core.services.destination_service import get_group_topics
+from core.utils.topic_checker import verify_user_topics
 
 from .finalize_handlers import finalize_destination_choice
 
@@ -14,60 +17,93 @@ logger = logging.getLogger(__name__)
 router = Router(name="sources_destinations")
 
 
-@router.callback_query(AddChannel.choose_destination, F.data.startswith("dest_select:"))
-async def process_destination_inline(callback: CallbackQuery, state: FSMContext, session, get_text: callable):
-    """Обработать выбор destination через inline кнопку"""
-
+@router.callback_query(AddChannel.choose_destination, F.data.startswith("dest_topic:"))
+@router.callback_query(AddChannel.choose_destination, F.data.startswith("list_topic:"))
+async def process_topic_selected(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Пользователь выбрал тему — финализируем выбор."""
     await callback.answer()
-
-    topic_identifier = callback.data.split(":", 1)[1]
-
+    
+    # Получаем данные
     data = await state.get_data()
-    destinations = data.get("destinations", [])
-    source_global_id = data.get("source_global_id")
-    source_type = data.get("source_type", "telegram")
-
-    # Ищем выбранный destination по topic_identifier
+    selected_group_chat_id = data.get("selected_group_chat_id")
+    selected_group_title = data.get("selected_group_title")
+    alive_topic_identifiers = data.get("alive_topic_identifiers", set())
+    
+    # Получаем топики группы для поиска выбранного
+    topics = await get_group_topics(selected_group_chat_id, session)
+    
+    # Фильтруем по hash (т.к. callback_data содержит хеш)
+    import hashlib
+    callback_hash = callback.data.split(":", 1)[1]
+    
     chosen = None
-    for d in destinations:
-        if d["topic_identifier"] == topic_identifier:
-            chosen = d
+    for topic in topics:
+        topic_hash = hashlib.md5(topic["topic_identifier"].encode()).hexdigest()[:8]
+        if topic_hash == callback_hash and topic["topic_identifier"] in alive_topic_identifiers:
+            chosen = topic
             break
 
     if not chosen:
-        await update_or_send_menu(
-            bot=callback.bot,
-            chat_id=callback.from_user.id,
-            text=get_text(['sources', 'destination_not_found']),
-            keyboard=get_main_menu_inline(get_text),
-            state=state
-        )
-        await state.clear()
+        await callback.answer(get_text(['sources', 'topic_not_found']), show_alert=True)
         return
 
-    # Обрабатываем выбор (без удаления сообщения — используем update_or_send_menu)
-    await finalize_destination_choice(callback, chosen, data, state, session, get_text)
+    # Создаём destination в формате, ожидаемом finalize_destination_choice
+    destination = {
+        "topic_identifier": chosen["topic_identifier"],
+        "chat_id": selected_group_chat_id,
+        "chat_title": selected_group_title,
+        "thread_id": chosen["telegram_thread_id"],
+        "thread_name": chosen["topic_name"],
+        "is_general": chosen["telegram_thread_id"] is None
+    }
+    
+    # Финализируем выбор
+    await finalize_destination_choice(callback, destination, data, state, session, get_text)
 
 
-@router.callback_query(AddChannel.choose_destination, F.data.startswith("dest_page:"))
-async def navigate_destinations(callback: CallbackQuery, state: FSMContext, get_text: callable):
-    """Навигация по страницам destinations"""
-
+@router.callback_query(AddChannel.choose_destination, F.data.startswith("topics_page:"))
+@router.callback_query(AddChannel.choose_destination, F.data.startswith("dest_topics_page:"))
+async def on_topics_page_change(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Навигация по страницам списка тем."""
+    await callback.answer()
+    
+    # Получаем номер страницы
     page = int(callback.data.split(":", 1)[1])
-
+    
+    # Получаем данные
     data = await state.get_data()
-    destinations = data.get("destinations", [])
-
-    # Обновляем inline клавиатуру с новой страницей
-    inline_kb = get_destinations_inline_kb(destinations, page=page, get_text=get_text)
-
-    # Обновляем текущее сообщение через update_or_send_menu
-    await update_or_send_menu(
+    selected_group_chat_id = data.get("selected_group_chat_id")
+    selected_group_title = data.get("selected_group_title")
+    alive_topic_identifiers = data.get("alive_topic_identifiers", set())
+    
+    # Получаем топики
+    topics = await get_group_topics(selected_group_chat_id, session)
+    filtered_topics = [t for t in topics if t["topic_identifier"] in alive_topic_identifiers]
+    
+    # 1. Удаляем старое сообщение через 2с
+    await delete_menu_message_with_delay(
         bot=callback.bot,
         chat_id=callback.from_user.id,
-        text=get_text(['sources', 'add_saved']),
+        state=state,
+        delay=2
+    )
+    
+    # 2. Отправляем НОВОЕ сообщение с новым списком тем
+    inline_kb = get_topics_inline_kb(
+        filtered_topics,
+        group_title=selected_group_title,
+        page=page,
+        get_text=get_text,
+        back_callback="cancel_add_channel",
+        mode="add"
+    )
+    
+    new_msg = await send_menu_message(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['sources', 'add_select_topic'], group_title=selected_group_title),
         keyboard=inline_kb,
         state=state
     )
-
-    await callback.answer()
+    
+    logger.debug(f"📄 Страница тем изменена на {page + 1} в группе {selected_group_title}")

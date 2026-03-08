@@ -328,6 +328,61 @@ async def get_destination_by_display_name(
         return None
 
 
+async def get_group_topics(
+    chat_id: int,
+    session: AsyncSession,
+    only_existing_topics: bool = True
+) -> List[Dict]:
+    """
+    Получить все темы в конкретной группе.
+    
+    Возвращает список тем для отображения в inline-клавиатуре.
+    
+    Args:
+        chat_id: ID группы
+        session: Сессия БД
+        only_existing_topics: Если True, фильтровать темы по is_exists_in_tg=True
+    
+    Returns:
+        Список тем с полями topic_identifier, topic_name, telegram_thread_id
+    """
+    try:
+        # Получаем группу с темами
+        query = select(ManagedGroup).where(ManagedGroup.telegram_chat_id == chat_id)
+        query = query.options(selectinload(ManagedGroup.topics))
+        
+        result = await session.execute(query)
+        group = result.scalar_one_or_none()
+        
+        if not group or not group.is_bot_active_in_group:
+            return []
+        
+        topics = []
+        for topic in group.topics:
+            # Фильтруем по существованию в TG
+            if only_existing_topics and not topic.is_exists_in_tg:
+                continue
+            
+            topics.append({
+                "topic_identifier": topic.topic_identifier,
+                "topic_name": topic.topic_name or "Без названия",
+                "telegram_thread_id": topic.telegram_thread_id,
+                "is_closed": topic.is_closed
+            })
+        
+        # Сортируем: сначала General, потом остальные по названию
+        topics.sort(key=lambda x: (
+            0 if x["telegram_thread_id"] is None else 1,
+            x["topic_name"] or ""
+        ))
+        
+        return topics
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения тем для группы {chat_id}: {e}")
+        return []
+
+
 async def get_user_topics_for_verification(
     account_id: int,
     session: AsyncSession
