@@ -1,10 +1,8 @@
 # bot/keyboards.py
 from typing import Callable, Dict, Any, List, Optional
-from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import (
-    ReplyKeyboardMarkup, 
-    KeyboardButton, 
-    InlineKeyboardMarkup, 
+    InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
 
@@ -12,45 +10,6 @@ from aiogram.types import (
 GetTextFunc = Callable[[List[str], Dict[str, Any]], str]
 
 
-# bot/keyboards.py (добавь в начало get_main_menu)
-
-def get_main_menu(get_text: GetTextFunc) -> ReplyKeyboardMarkup:
-    """Главное меню - полностью исправленная версия"""
-    import logging
-    logger = logging.getLogger(__name__)
-    builder = ReplyKeyboardBuilder()
-    
-    try:
-        # Получаем тексты из локализации
-        btn_add = get_text(['keyboards', 'main_menu', 'add_channel'])
-        btn_sources = get_text(['keyboards', 'main_menu', 'my_sources'])
-        btn_overview = get_text(['keyboards', 'main_menu', 'overview'])
-        btn_settings = get_text(['keyboards', 'main_menu', 'settings'])
-        btn_help = get_text(['keyboards', 'main_menu', 'help'])
-        btn_refresh = get_text(['keyboards', 'main_menu', 'refresh'])
-        #btn_admin_panel = get_text(['keyboards', 'main_menu', 'admin_panel'])
-        placeholder = get_text(['keyboards', 'main_menu', 'placeholder'])
-    except Exception as e:
-        logger.error(f"Ошибка локализации меню: {e}")
-        # Запасной вариант (Fallback)
-        btn_add, btn_sources = "✚ Добавить", "📚 Источники"
-        btn_overview = "📰 Обзор"
-        btn_settings, btn_help = "⚙️ Настройки", "❓ Помощь"
-        #btn_admin_panel = "👨‍💼 Админ-панель"
-        btn_refresh = "🔄 Обновить"
-        placeholder = "Выберите действие..."
-
-    # Строим сетку кнопок
-    builder.row(KeyboardButton(text=btn_add), KeyboardButton(text=btn_sources))
-    builder.row(KeyboardButton(text=btn_overview), KeyboardButton(text=btn_help))
-    builder.row(KeyboardButton(text=btn_settings), KeyboardButton(text=btn_refresh)) #KeyboardButton(text=btn_admin_panel)
-
-    # .as_markup() ОБЯЗАТЕЛЬНО должен быть с resize_keyboard=True
-    return builder.as_markup(
-        resize_keyboard=True,
-        input_field_placeholder=placeholder,
-        selective=True
-    )
 
 
 def get_main_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
@@ -92,25 +51,6 @@ def get_main_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_admin_panel_menu(get_text: GetTextFunc) -> ReplyKeyboardMarkup:
-    """Клавиатура админ-панели - 3 ряда"""
-    builder = ReplyKeyboardBuilder()
-    
-    builder.row(KeyboardButton(text=get_text(['keyboards', 'admin_menu', 'manage_groups'])))
-    builder.row(
-        KeyboardButton(text=get_text(['keyboards', 'admin_menu', 'manage_topics'])),
-        KeyboardButton(text=get_text(['keyboards', 'admin_menu', 'statistics']))
-    )
-    builder.row(
-        KeyboardButton(text=get_text(['keyboards', 'admin_menu', 'monitoring'])),
-        KeyboardButton(text=get_text(['keyboards', 'admin_menu', 'back']))
-    )
-    
-    return builder.as_markup(
-        resize_keyboard=True,
-        input_field_placeholder=get_text(['keyboards', 'admin_menu', 'placeholder']),
-        is_persistent=True,
-    )
 
 
 def get_admin_panel_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
@@ -147,45 +87,8 @@ def get_admin_panel_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_groups_menu(groups: List[dict], get_text: GetTextFunc) -> ReplyKeyboardMarkup:
-    """Меню выбора групп"""
-    builder = ReplyKeyboardBuilder()
-    
-    active_prefix = get_text(['keyboards', 'groups_menu', 'active_prefix'])
-    inactive_prefix = get_text(['keyboards', 'groups_menu', 'inactive_prefix'])
-    
-    # Добавляем кнопки групп
-    for i, group in enumerate(groups, 1):
-        emoji = active_prefix if group.get("is_active", True) else inactive_prefix
-        display = f"{emoji} {i}. {group['chat_title']}"
-        builder.add(KeyboardButton(text=display))
-    
-    # Добавляем кнопки управления
-    builder.row(KeyboardButton(text=get_text(['keyboards', 'groups_menu', 'add_group'])))
-    builder.row(
-        KeyboardButton(text=get_text(['keyboards', 'groups_menu', 'back'])),
-        KeyboardButton(text=get_text(['keyboards', 'main_menu_title']))
-    )
-    
-    return builder.as_markup(
-        resize_keyboard=True,
-        input_field_placeholder=get_text(['keyboards', 'groups_menu', 'placeholder']),
-        is_persistent=False,
-    )
 
 
-def get_destinations_menu(destinations: List[dict], get_text: GetTextFunc) -> ReplyKeyboardMarkup:
-    """Меню выбора назначений (групп/тем) - Reply клавиатура с одной кнопкой 'Отмена'"""
-    builder = ReplyKeyboardBuilder()
-
-    # Оставляем только кнопку отмены
-    builder.row(KeyboardButton(text=get_text(['keyboards', 'destinations', 'cancel'])))
-
-    return builder.as_markup(
-        resize_keyboard=True,
-        input_field_placeholder=get_text(['keyboards', 'destinations', 'placeholder']),
-        is_persistent=False,
-    )
 
 
 def get_destinations_inline_kb(
@@ -527,37 +430,10 @@ def get_topics_inline_kb(
     return builder.as_markup()
 
 
-def get_cancel_kb_reply(get_text: GetTextFunc) -> ReplyKeyboardMarkup:
-    """Reply-клавиатура с кнопкой отмены"""
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=get_text(['keyboards', 'cancel']))]],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
 
 
-def get_back_to_main_kb(get_text: GetTextFunc) -> ReplyKeyboardMarkup:
-    """Клавиатура для возврата в главное меню"""
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=get_text(['keyboards', 'main_menu_title']))]],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
 
 
-def get_settings_menu(get_text: GetTextFunc) -> ReplyKeyboardMarkup:
-    """Меню настроек"""
-    builder = ReplyKeyboardBuilder()
-
-    builder.row(KeyboardButton(text=get_text(['keyboards', 'settings_menu', 'language'])))
-    builder.row(KeyboardButton(text=get_text(['keyboards', 'settings_menu', 'delete_data'])))
-    builder.row(KeyboardButton(text=get_text(['keyboards', 'settings_menu', 'back'])))
-
-    return builder.as_markup(
-        resize_keyboard=True,
-        input_field_placeholder=get_text(['keyboards', 'settings_menu', 'placeholder']),
-        is_persistent=True,
-    )
 
 
 def get_settings_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
@@ -805,18 +681,11 @@ def get_source_list_kb(
 
 # В конце файла bot/keyboards.py
 __all__ = [
-    'get_main_menu',
     'get_main_menu_inline',
-    'get_admin_panel_menu',
     'get_admin_panel_menu_inline',
-    'get_groups_menu',
-    'get_destinations_menu',
     'get_destinations_inline_kb',
     'get_groups_inline_kb',
     'get_topics_inline_kb',
-    'get_cancel_kb_reply',
-    'get_back_to_main_kb',
-    'get_settings_menu',
     'get_settings_menu_inline',
     'get_confirm_channel_kb',
     'get_cancel_kb',

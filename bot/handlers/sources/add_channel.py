@@ -29,11 +29,9 @@ logger = logging.getLogger(__name__)
 router = Router(name="sources_add")
 
 USERNAME_REGEX = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{4,31}$")
-ADD_CHANNEL_BUTTONS = ["✚ Добавить канал", "✚ Add channel", "✚ Додати канал", "✚ Дадаць канал"]
 
 
 @router.message(Command("add"))
-@router.message(F.text.in_(ADD_CHANNEL_BUTTONS))
 async def cmd_add_channel(message: Message, state: FSMContext, session: AsyncSession, get_text: callable, bot=None):
     """Начать процесс добавления канала — обновляем текущее сообщение."""
 
@@ -292,12 +290,11 @@ async def process_channel_after_check(message: Message, state: FSMContext, sessi
             alive_topic_identifiers={t.topic_identifier for t in alive_topics}
         )
 
-    # 1. Удаляем старое сообщение через 2с
+    # 1. Удаляем старое сообщение (задержка из menu_message.py)
     await delete_menu_message_with_delay(
         bot=bot,
         chat_id=message.from_user.id,
-        state=state,
-        delay=2
+        state=state
     )
 
     # 2. Отправляем НОВОЕ сообщение с выбором ГРУППЫ

@@ -22,7 +22,8 @@ from bot.utils.menu_message import (
     clear_menu_message,
     MENU_MESSAGE_ID_KEY,
     send_menu_message,
-    delete_after_delay
+    delete_after_delay,
+    DEFAULT_DELETE_DELAY
 )
 from aiogram import Bot
 
@@ -73,15 +74,10 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
     )
 
 
-# Константы для кнопок главного меню
-HELP_BUTTONS = ["❓ Помощь", "❓ Help", "❓ Довідка", "❓ Даведка"]
-MAIN_MENU_BUTTONS = ["🏠 Главное меню", "🏠 Main menu", "🏠 Головне меню", "🏠 Галоўнае меню"]
-CANCEL_BUTTONS = ["❌ Отмена", "❌ Cancel", "❌ Скасування", "❌ Скасаванне"]
-REFRESH_BUTTONS = ["🔄 Обновить", "🔄 Refresh", "🔄 Оновити", "🔄 Абнавіць"]
+# Обработчики команд
 
 
 @router.message(Command("help"))
-@router.message(F.text.in_(HELP_BUTTONS))
 async def cmd_help(message: Message, state: FSMContext, get_text: callable):
     """Обработчик команды /help"""
     await update_or_send_menu(
@@ -94,22 +90,7 @@ async def cmd_help(message: Message, state: FSMContext, get_text: callable):
     )
 
 
-@router.message(F.text.in_(MAIN_MENU_BUTTONS))
-async def cmd_menu(message: Message, state: FSMContext, get_text: callable):
-    """Возврат в меню"""
-    await state.clear()
-    await update_or_send_menu(
-        bot=message.bot,
-        chat_id=message.from_user.id,
-        text=get_text(['common', 'menu']),
-        keyboard=get_main_menu_inline(get_text),
-        state=state,
-        fallback_message=message
-    )
-
-
 @router.message(Command("cancel"))
-@router.message(F.text.in_(CANCEL_BUTTONS))
 async def cmd_cancel(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
     """Отмена текущего действия"""
     current_state = await state.get_state()
@@ -136,7 +117,6 @@ async def cmd_cancel(message: Message, state: FSMContext, session: AsyncSession,
 
 
 @router.message(Command("refresh"))
-@router.message(F.text.in_(REFRESH_BUTTONS))
 async def cmd_refresh(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
     """Обновить интерфейс (как /start, но мягче)"""
 
@@ -327,11 +307,11 @@ async def on_menu_settings(callback: CallbackQuery, state: FSMContext, get_text:
 async def on_menu_refresh(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
     """Обработчик кнопки "Обновить" — создаёт новое сообщение вместо старого"""
     await callback.answer()
-    
+
     # Получаем текущий message_id перед очисткой состояния
     data = await state.get_data()
     old_message_id = data.get("_menu_message_id")
-    
+
     # Очищаем состояние
     await state.clear()
 
@@ -346,14 +326,14 @@ async def on_menu_refresh(callback: CallbackQuery, state: FSMContext, session: A
         keyboard=get_main_menu_inline(get_text),
         state=state
     )
-    
-    # Удаляем старое сообщение с задержкой 2 секунды
+
+    # Удаляем старое сообщение (задержка из menu_message.py)
     if old_message_id:
         asyncio.create_task(delete_after_delay(
             bot=callback.bot,
             chat_id=callback.from_user.id,
             message_id=old_message_id,
-            delay=2
+            delay=DEFAULT_DELETE_DELAY
         ))
-    
+
     logger.info(f"🔄 Обновление меню: старое {old_message_id} → новое {new_message_id}")

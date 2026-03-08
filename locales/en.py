@@ -416,11 +416,7 @@ MESSAGES = {
     # ========== SETTINGS (settings_handler.py) ==========
     "settings": {
         "title": "<b>⚙️ Settings</b>\n\n"
-                 "👤 <b>Language:</b> {lang}\n"
-                 "📊 <b>Statistics:</b>\n"
-                 "• Personal subscriptions: ?\n"
-                 "• Groups: ?\n\n"
-                 "<i>Choose an action:</i>",
+                 "Use /settings command to change settings.",
         
         # Language
         "language_prompt": "<b>🌐 Choose language</b>\n\n"

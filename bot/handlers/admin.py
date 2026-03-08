@@ -25,8 +25,7 @@ from bot.states import AdminPanel
 from bot.keyboards import (
     get_admin_panel_menu_inline,
     get_main_menu_inline,
-    get_groups_menu,
-    get_back_to_main_kb
+    get_groups_inline_kb
 )
 from bot.utils.menu_message import update_or_send_menu
 from core.services.destination_service import (
@@ -40,148 +39,6 @@ from core.services.destination_service import (
 logger = logging.getLogger(__name__)
 
 router = Router(name="admin")
-
-# Константы для кнопок админ-панели
-ADMIN_PANEL_BUTTONS = ["👨‍💼 Админ-панель", "👨‍💼 Admin panel", "👨‍💼 Адмін-панель", "👨‍💼 Адмін-панэль"]
-MANAGE_GROUPS_BUTTONS = ["👥 Управление группами", "👥 Manage groups", "👥 Управління групами", "👥 Кіраванне групамі"]
-BACK_BUTTONS = ["← Назад", "← Back", "← Назад", "← Назад"]
-
-
-@router.message(F.text.in_(ADMIN_PANEL_BUTTONS))
-async def open_admin_panel(message: Message, state: FSMContext, get_text: callable):
-    """Открыть админ-панель."""
-    await update_or_send_menu(
-        bot=message.bot,
-        chat_id=message.from_user.id,
-        text=get_text(['admin', 'panel']),
-        keyboard=get_admin_panel_menu_inline(get_text),
-        state=state,
-        fallback_message=message
-    )
-    await state.set_state(AdminPanel.main)
-
-
-@router.message(AdminPanel.main, F.text.in_(MANAGE_GROUPS_BUTTONS))
-async def manage_groups_start(message: Message, session: AsyncSession, state: FSMContext, get_text: callable):
-    """Управление группами."""
-    user_id = message.from_user.id
-
-    # Получаем группы пользователя
-    groups = await get_user_groups(user_id, session)
-
-    if not groups:
-        await update_or_send_menu(
-            bot=message.bot,
-            chat_id=message.from_user.id,
-            text=get_text(['admin', 'no_groups']),
-            keyboard=get_admin_panel_menu_inline(get_text),
-            state=state,
-            fallback_message=message
-        )
-        return
-
-    # Сохраняем группы в состояние для следующих шагов
-    await state.update_data(groups_for_manage=groups)
-
-    await message.answer(
-        get_text(['admin', 'groups_found'], count=len(groups)),
-        parse_mode="HTML",
-        reply_markup=get_groups_menu(groups, get_text)
-    )
-    await state.set_state(AdminPanel.group_selected)
-
-
-@router.message(AdminPanel.group_selected)
-async def manage_group_selected(message: Message, state: FSMContext, session: AsyncSession, get_text: callable):
-    """Пользователь выбрал конкретную группу."""
-    data = await state.get_data()
-    groups = data.get("groups_for_manage", [])
-
-    # Если groups нет в состоянии, получаем заново
-    if not groups:
-        user_id = message.from_user.id
-        groups = await get_user_groups(user_id, session)
-
-    if message.text in BACK_BUTTONS:
-        await update_or_send_menu(
-            bot=message.bot,
-            chat_id=message.from_user.id,
-            text=get_text(['admin', 'panel']),
-            keyboard=get_admin_panel_menu_inline(get_text),
-            state=state,
-            fallback_message=message
-        )
-        await state.set_state(AdminPanel.main)
-        return
-
-    if message.text in ("🏠 Главное меню", "🏠 Main menu"):
-        await update_or_send_menu(
-            bot=message.bot,
-            chat_id=message.from_user.id,
-            text=get_text(['common', 'menu']),
-            keyboard=get_main_menu_inline(get_text),
-            state=state,
-            fallback_message=message
-        )
-        await state.clear()
-        return
-    
-    # Находим выбранную группу
-    selected_text = message.text.strip()
-    # Убираем эмодзи статуса если есть
-    if selected_text.startswith(("✅ ", "❌ ")):
-        selected_text = selected_text[2:]
-    
-    selected_group = None
-    for group in groups:
-        if group["chat_title"] == selected_text or group["display_name"] == message.text:
-            selected_group = group
-            break
-    
-    if not selected_group:
-        await message.answer(
-            get_text(['admin', 'select_from_list']),
-            parse_mode="HTML",
-            reply_markup=get_groups_menu(groups, get_text)
-        )
-        return
-    
-    chat_id = selected_group["chat_id"]
-    
-    # Получаем темы группы из базы
-    topics_stmt = select(GroupTopic).where(
-        GroupTopic.telegram_chat_id == chat_id,
-        GroupTopic.is_closed == False
-    ).order_by(GroupTopic.topic_name)
-    
-    topics_result = await session.execute(topics_stmt)
-    topics = topics_result.scalars().all()
-    
-    # Формируем список тем
-    topics_list = ""
-    if topics:
-        for i, topic in enumerate(topics, 1):
-            thread_info = f" (ID: {topic.telegram_thread_id})" if topic.telegram_thread_id else get_text(['admin', 'general_topic'])
-            topics_list += get_text(['admin', 'topic_item'], i=i, name=html.escape(topic.topic_name), thread_info=thread_info)
-    else:
-        topics_list = get_text(['admin', 'no_topics'])
-    
-    status_text = get_text(['admin', 'group_active']) if selected_group.get('is_active', True) else get_text(['admin', 'group_inactive'])
-    
-    await update_or_send_menu(
-        bot=message.bot,
-        chat_id=message.from_user.id,
-        text=get_text(['admin', 'group_info'],
-                name=html.escape(selected_group['chat_title']),
-                chat_id=chat_id,
-                status=status_text,
-                topics=topics_list),
-        keyboard=get_admin_panel_menu_inline(get_text),
-        state=state,
-        fallback_message=message
-    )
-
-    await state.set_state(AdminPanel.main)
 
 
 @router.message(Command("activ"))
@@ -741,20 +598,6 @@ async def enter_topic_name_callback(callback: CallbackQuery, state: FSMContext):
     
     await callback.answer("📝 Введите название темы текстом")
     logger.info(f"⏳ Ожидание названия темы от пользователя {callback.from_user.id}")
-
-
-@router.message(AdminPanel.main, F.text.in_({"← Назад", "← Back"}))
-async def back_to_main(message: Message, state: FSMContext, get_text: callable):
-    """Вернуться в главное меню."""
-    await update_or_send_menu(
-        bot=message.bot,
-        chat_id=message.from_user.id,
-        text=get_text(['common', 'menu']),
-        keyboard=get_main_menu_inline(get_text),
-        state=state,
-        fallback_message=message
-    )
-    await state.clear()
 
 
 # ========== ОБРАБОТКА ПЕРЕИМЕНОВАНИЯ ГРУППЫ ==========

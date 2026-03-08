@@ -57,12 +57,11 @@ async def on_group_selected(callback: CallbackQuery, state: FSMContext, session:
         selected_group_title=group_title
     )
 
-    # 1. Удаляем старое сообщение через 2с
+    # 1. Удаляем старое сообщение (задержка из menu_message.py)
     await delete_menu_message_with_delay(
         bot=callback.bot,
         chat_id=callback.from_user.id,
-        state=state,
-        delay=2
+        state=state
     )
 
     # 2. Отправляем НОВОЕ сообщение с выбором ТЕМЫ
@@ -100,12 +99,11 @@ async def on_groups_page_change(callback: CallbackQuery, state: FSMContext, sess
     # Получаем группы
     groups = await get_user_groups(callback.from_user.id, session)
     
-    # 1. Удаляем старое сообщение через 2с
+    # 1. Удаляем старое сообщение (задержка из menu_message.py)
     await delete_menu_message_with_delay(
         bot=callback.bot,
         chat_id=callback.from_user.id,
-        state=state,
-        delay=2
+        state=state
     )
     
     # 2. Отправляем НОВОЕ сообщение с новым списком групп

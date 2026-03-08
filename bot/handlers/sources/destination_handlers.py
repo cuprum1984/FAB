@@ -80,12 +80,11 @@ async def on_topics_page_change(callback: CallbackQuery, state: FSMContext, sess
     topics = await get_group_topics(selected_group_chat_id, session)
     filtered_topics = [t for t in topics if t["topic_identifier"] in alive_topic_identifiers]
     
-    # 1. Удаляем старое сообщение через 2с
+    # 1. Удаляем старое сообщение (задержка из menu_message.py)
     await delete_menu_message_with_delay(
         bot=callback.bot,
         chat_id=callback.from_user.id,
-        state=state,
-        delay=2
+        state=state
     )
     
     # 2. Отправляем НОВОЕ сообщение с новым списком тем

@@ -226,12 +226,11 @@ async def finalize_destination_choice(
                     logger.error(f"❌ Ошибка отправки первого видео: {send_error}")
 
         # ========== 6. УСПЕХ! ==========
-        # 1. Удаляем старое навигационное сообщение ЧЕРЕЗ 2 СЕКУНДЫ
+        # 1. Удаляем старое навигационное сообщение (задержка из menu_message.py)
         await delete_menu_message_with_delay(
             bot=callback.bot,
             chat_id=callback.from_user.id,
-            state=state,
-            delay=2
+            state=state
         )
 
         # 2. Отправляем НОВОЕ сообщение с результатом
