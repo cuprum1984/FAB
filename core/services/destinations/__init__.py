@@ -44,6 +44,7 @@ from .access import (
     get_user_groups,
     get_user_destinations,
     get_group_destinations,
+    get_group_topics,
     check_destination_access,
     get_destination_by_display_name,
 )
@@ -82,6 +83,7 @@ __all__ = [
     "get_user_groups",
     "get_user_destinations",
     "get_group_destinations",
+    "get_group_topics",
     "check_destination_access",
     "get_destination_by_display_name",
     # Cache

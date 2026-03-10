@@ -79,6 +79,7 @@ MESSAGES = {
             "add_channel": "✚ Add channel",
             "my_sources": "📚 My sources",
             "my_feed": "📰 My feed",
+            "overview": "📰 Overview",
             "settings": "⚙️ Settings",
             "admin_panel": "👨‍💼 Admin panel",
             "help": "❓ Help",
@@ -350,6 +351,10 @@ MESSAGES = {
                               "📝 Last video ID: {video_id}\n\n"
                               "⏳ Processing...",
         "add_saved": "📌 Now choose a group/topic to send the last post to:",
+        "add_select_group": "📚 <b>Select a group</b>\n\n"
+                            "📌 In the next step you will be able to select a topic inside the group.",
+        "add_select_topic": "🗨️ <b>Select a topic in group \"{group_title}\"</b>\n\n"
+                            "📌 New posts will be sent here.",
 
         # Destination choice
         "destination_not_found": "❌ Could not recognize your choice. Please select from the list:",
@@ -411,11 +416,7 @@ MESSAGES = {
     # ========== SETTINGS (settings_handler.py) ==========
     "settings": {
         "title": "<b>⚙️ Settings</b>\n\n"
-                 "👤 <b>Language:</b> {lang}\n"
-                 "📊 <b>Statistics:</b>\n"
-                 "• Personal subscriptions: ?\n"
-                 "• Groups: ?\n\n"
-                 "<i>Choose an action:</i>",
+                 "Use /settings command to change settings.",
         
         # Language
         "language_prompt": "<b>🌐 Choose language</b>\n\n"

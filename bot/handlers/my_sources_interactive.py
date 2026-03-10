@@ -79,39 +79,6 @@ async def cmd_my_sources_command(message: Message, session: AsyncSession, bot: B
     await _process_my_sources(message, session, bot, state, get_text)
 
 
-@router.message(F.text.in_([
-    "📚 Мои источники", "📚 My sources", "📚 Мої джерела", "📚 Маё крыніцы",
-    "📚 Источники", "Мои источники", "My sources", "Інші джерела", "Маё крыніцы"
-]))
-async def cmd_my_sources_text(message: Message, session: AsyncSession, bot: Bot, state: FSMContext, get_text: callable = None):
-    """Показать источники с интерактивной навигацией (обработчик текстовой кнопки)"""
-    user_id = message.from_user.id
-    logger.info(f"📚 ТЕКСТОВАЯ КНОПКА нажата пользователем {user_id}")
-    logger.info(f"📚 get_text доступен: {get_text is not None}")
-    
-    # Если get_text не передан, создаём fallback функцию
-    if get_text is None:
-        logger.warning("⚠️ get_text не передан, используем fallback")
-        def get_text(keys, **kwargs):
-            fallback_texts = {
-                'topic_check': {'message': '🤗 Проверка...'},
-                'common': {'menu': '🏠 Главное меню'},
-                'keyboards': {
-                    'main_menu': {'my_sources': '📚 Мои источники'},
-                    'back_to_main': '🔙 В главное меню',
-                    'groups_menu': {'prev': '◀️', 'next': '▶️', 'cancel': '❌', 'dot': '.'}
-                }
-            }
-            try:
-                result = fallback_texts
-                for key in keys:
-                    result = result[key]
-                return result
-            except (KeyError, TypeError):
-                return str(keys)
-
-    await _process_my_sources(message, session, bot, state, get_text)
-
 
 async def _process_my_sources(message: Message, session: AsyncSession, bot: Bot, state: FSMContext, get_text: callable):
     """Общая логика для /list и кнопки "Мои источники" (для сообщений)"""
@@ -214,18 +181,48 @@ async def on_group_selected(callback: CallbackQuery, session: AsyncSession, stat
     chat_id = int(callback.data.split(":")[1])
     logger.info(f"🔍 Выбрана группа: {chat_id}")
 
+    # Получаем user_id из callback, а не из состояния!
+    user_id = callback.from_user.id
+    
     data = await state.get_data()
-    user_id = data.get('user_id')
     groups = data.get('groups', [])
 
     logger.info(f"📊 Данные из состояния: user_id={user_id}, groups={len(groups) if groups else 0}")
+
+    # Если групп нет в состоянии, загружаем их заново
+    if not groups:
+        logger.info(f"🔄 Группы не найдены в состоянии, загружаем заново для пользователя {user_id}")
+        groups = await get_user_groups(user_id, session, only_existing_topics=True)
+        logger.info(f"📊 Загружено групп: {len(groups) if groups else 0}")
+        
+        if not groups:
+            logger.warning(f"⚠️ У пользователя {user_id} нет групп")
+            await callback.answer("❌ Нет групп", show_alert=True)
+            return
+        
+        # Сохраняем в состояние
+        await state.update_data(user_id=user_id, groups=groups, groups_page=0)
+        logger.info(f"✅ Сохранено в состояние: user_id={user_id}, groups={len(groups)}")
 
     # Находим выбранную группу
     group = next((g for g in groups if g["chat_id"] == chat_id), None)
     if not group:
         logger.warning(f"❌ Группа {chat_id} не найдена в состоянии")
-        await callback.answer("❌ Группа не найдена", show_alert=True)
-        return
+        # Пробуем найти группу напрямую из БД
+        group_stmt = select(ManagedGroup).where(ManagedGroup.telegram_chat_id == chat_id)
+        group_result = await session.execute(group_stmt)
+        group_db = group_result.scalar_one_or_none()
+        
+        if not group_db:
+            await callback.answer("❌ Группа не найдена", show_alert=True)
+            return
+        
+        # Используем данные из БД
+        group = {
+            "chat_id": group_db.telegram_chat_id,
+            "chat_title": group_db.telegram_chat_title or f"Группа {chat_id}"
+        }
+        logger.info(f"✅ Группа найдена в БД: {group['chat_title']}")
 
     # Получаем топики группы
     topics_stmt = select(GroupTopic).where(
@@ -561,25 +558,12 @@ async def on_delete_source_confirm(callback: CallbackQuery, session: AsyncSessio
                 'source_type': source.source_type
             })
 
-        # Получаем текущую страницу
+        # 1. Вычисляем общую кількість страниц и текущую страницу
         total_pages = (len(sources) + 4) // 5 if len(sources) > 0 else 1
         page = data.get('sources_page', 0)
         page = max(0, min(page, total_pages - 1))
 
-        # Импортируем функцию формирования клавиатуры
-        from bot.keyboards import get_source_list_kb
-
-        # Формируем клавиатуру через get_source_list_kb (с заголовком темы!)
-        keyboard = get_source_list_kb(
-            sources=sources,
-            topic_title=topic_title,
-            page=page,
-            page_size=5,
-            get_text=get_text,
-            use_subscription_id=True,
-            back_callback="list_back:topics"
-        )
-
+        # 2. Формируем текст и клавиатуру для обновлённого списка
         page_info = f" ({page + 1}/{total_pages})" if total_pages > 1 else ""
         text = (
             f"<b>🗨️ Тема: {topic_title}</b>{page_info}\n\n"
@@ -601,23 +585,22 @@ async def on_delete_source_confirm(callback: CallbackQuery, session: AsyncSessio
             back_callback="list_back:topics"
         )
 
-        # 1. Удаляем старое навигационное сообщение ЧЕРЕЗ 2 СЕКУНДЫ
+        # 3. Удаляем старое навигационное сообщение (задержка из menu_message.py)
         await delete_menu_message_with_delay(
             bot=callback.bot,
             chat_id=callback.from_user.id,
-            state=state,
-            delay=2
+            state=state
         )
 
-        # 2. Отправляем НОВОЕ сообщение с результатом
+        # 4. Отправляем НОВОЕ сообщение с результатом удаления
         result_msg = await callback.bot.send_message(
             chat_id=callback.from_user.id,
             text=f"✅ <b>{source_name}</b> удалён из темы <b>{topic_title}</b>",
             parse_mode="HTML"
         )
-        logger.info(f"📤 Отправлено сообщение о результате: {result_msg.message_id}")
+        logger.info(f"📤 Отправлено сообщение о результате удаления: {result_msg.message_id}")
 
-        # 3. Отправляем НОВОЕ навигационное сообщение (обновлённый список)
+        # 5. Отправляем НОВОЕ навигационное сообщение (обновлённый список)
         new_nav_msg = await callback.bot.send_message(
             chat_id=callback.from_user.id,
             text=text,
@@ -626,7 +609,7 @@ async def on_delete_source_confirm(callback: CallbackQuery, session: AsyncSessio
         )
         logger.info(f"📤 Отправлено новое навигационное сообщение: {new_nav_msg.message_id}")
 
-        # 4. Сохраняем новый message_id в состоянии
+        # 6. Сохраняем новый message_id в состоянии
         await state.update_data({MENU_MESSAGE_ID_KEY: new_nav_msg.message_id})
 
         await callback.answer("✅ Подписка удалена")

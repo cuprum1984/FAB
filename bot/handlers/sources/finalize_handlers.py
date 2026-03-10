@@ -36,10 +36,13 @@ async def finalize_destination_choice(
     source_type = data.get("source_type", "telegram")
 
     try:
-        chat_id = chosen["chat_id"]
+        # Получаем chat_id из выбранной группы (сохранено в state)
+        selected_group_chat_id = data.get("selected_group_chat_id")
+        chat_id = selected_group_chat_id or chosen.get("chat_id")
         topic_identifier = chosen["topic_identifier"]
+        display_name = f"{chosen.get('chat_title', 'Группа')} → {chosen.get('thread_name', 'General')}"
 
-        logger.info(f"🔄 Добавление {source_type} канала в {chosen['display_name']}")
+        logger.info(f"🔄 Добавление {source_type} канала в {display_name}")
 
         # ========== 1. ПРОВЕРЯЕМ ИСТОЧНИК ==========
         source_stmt = select(ContentSource).where(ContentSource.source_global_id == source_global_id)
@@ -105,7 +108,7 @@ async def finalize_destination_choice(
             await update_or_send_menu(
                 bot=callback.bot,
                 chat_id=callback.from_user.id,
-                text=get_text(['sources', 'destination_already_exists'], destination=chosen['display_name']),
+                text=get_text(['sources', 'destination_already_exists'], destination=display_name),
                 keyboard=get_main_menu_inline(get_text),
                 state=state
             )
@@ -223,12 +226,11 @@ async def finalize_destination_choice(
                     logger.error(f"❌ Ошибка отправки первого видео: {send_error}")
 
         # ========== 6. УСПЕХ! ==========
-        # 1. Удаляем старое навигационное сообщение ЧЕРЕЗ 2 СЕКУНДЫ
+        # 1. Удаляем старое навигационное сообщение (задержка из menu_message.py)
         await delete_menu_message_with_delay(
             bot=callback.bot,
             chat_id=callback.from_user.id,
-            state=state,
-            delay=2
+            state=state
         )
 
         # 2. Отправляем НОВОЕ сообщение с результатом
@@ -240,7 +242,7 @@ async def finalize_destination_choice(
                 text=get_text(['sources', 'destination_success_telegram'],
                         username=username,
                         post_id=first_post_id,
-                        destination=chosen['display_name'])
+                        destination=display_name)
             )
             logger.info(f"📤 Отправлено сообщение о результате: {result_msg.message_id}")
             logger.info(f"✅ Канал @{username} добавлен, отправлен 1 пост (ID: {first_post_id})")
@@ -253,7 +255,7 @@ async def finalize_destination_choice(
                 text=get_text(['sources', 'destination_success_youtube'],
                         username=username,
                         video_id=first_video_id,
-                        destination=chosen['display_name'])
+                        destination=display_name)
             )
             logger.info(f"📤 Отправлено сообщение о результате: {result_msg.message_id}")
             logger.info(f"✅ YouTube канал @{username} добавлен, отправлено 1 видео")

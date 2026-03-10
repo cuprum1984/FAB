@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 # Ключ для хранения message_id в состоянии
 MENU_MESSAGE_ID_KEY = "_menu_message_id"
 
+# Глобальная задержка удаления сообщений (в секундах)
+# Используется во всех хендлерах при удалении/добавлении источников
+DEFAULT_DELETE_DELAY = 0
+
 
 async def send_menu_message(
     bot: Bot,
@@ -334,31 +338,35 @@ async def delete_after_delay(bot: Bot, chat_id: int, message_id: int, delay: int
 
 
 async def delete_menu_message_with_delay(
-    bot: Bot, 
-    chat_id: int, 
-    state: FSMContext, 
-    delay: int = 2
+    bot: Bot,
+    chat_id: int,
+    state: FSMContext,
+    delay: Optional[int] = None
 ) -> None:
     """
     Удалить текущее сообщение меню через задержку.
-    
+
     Используется при успешном завершении действия (удаление/добавление),
     чтобы показать результат в НОВОМ сообщении.
-    
+
     Args:
         bot: Объект бота
         chat_id: ID чата
         state: FSM состояние
-        delay: Задержка в секундах перед удалением (по умолчанию 2)
+        delay: Задержка в секундах перед удалением (по умолчанию DEFAULT_DELETE_DELAY)
     """
+    # Используем глобальную задержку, если не указана явно
+    if delay is None:
+        delay = DEFAULT_DELETE_DELAY
+    
     data = await state.get_data()
     message_id = data.get(MENU_MESSAGE_ID_KEY)
-    
+
     if message_id:
         # Очищаем из состояния СРАЗУ
         data.pop(MENU_MESSAGE_ID_KEY, None)
         await state.set_data(data)
-        
+
         # Запускаем удаление с задержкой
         asyncio.create_task(delete_after_delay(bot, chat_id, message_id, delay))
         logger.info(f"⏳ Сообщение {message_id} будет удалено через {delay}с")
