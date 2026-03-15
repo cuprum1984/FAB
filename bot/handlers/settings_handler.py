@@ -123,10 +123,14 @@ async def process_language_callback(callback: CallbackQuery, state: FSMContext, 
         lang_name = get_text(['settings', f'language_{lang}'])
         await callback.answer(get_text(['settings', 'language_changed'], lang=lang_name))
 
-        # 4. Устанавливаем состояние Settings.main СРАЗУ, чтобы кнопки работали
+        # 4. Обновляем команды бота для пользователя
+        from bot.main import update_user_commands
+        await update_user_commands(callback.bot, user_id, lang)
+
+        # 5. Устанавливаем состояние Settings.main СРАЗУ, чтобы кнопки работали
         await state.set_state(Settings.main)
 
-        # 5. Обновляем меню настроек с новым языком (в том же сообщении)
+        # 6. Обновляем меню настроек с новым языком (в том же сообщении)
         await update_or_send_menu(
             bot=callback.bot,
             chat_id=callback.from_user.id,
