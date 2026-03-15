@@ -175,7 +175,7 @@ cleaner.py
 monitor.py
 sender.py
 .env.local
-
+tools/
 
 # Spyder project settings
 .spyderproject
