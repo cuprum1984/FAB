@@ -297,9 +297,9 @@ async def process_channel_after_check(message: Message, state: FSMContext, sessi
         state=state
     )
 
-    # 2. Отправляем НОВОЕ сообщение с выбором ГРУППЫ
+    # 2. ОТПРАВЛЯЕМ НОВОЕ сообщение с выбором ГРУППЫ (и далее топика в нём же)
     inline_kb = get_groups_inline_kb(groups, page=0, get_text=get_text, back_callback="cancel_add_channel", mode="add")
-    
+
     new_msg = await bot.send_message(
         chat_id=message.from_user.id,
         text=get_text(['sources', 'add_select_group']),

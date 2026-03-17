@@ -175,8 +175,8 @@ cleaner.py
 monitor.py
 sender.py
 .env.local
-
-
+tools/
+docker-compose.yml
 # Spyder project settings
 .spyderproject
 .spyproject

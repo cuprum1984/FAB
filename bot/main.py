@@ -68,31 +68,24 @@ tasks: list[asyncio.Task] = []
 async def set_bot_commands(bot: Bot):
     """Установка команд бота с русским языком по умолчанию"""
     # Русские команды (для всех новых пользователей)
+    # Оставлены только: /start, /activ, /plus
     ru_commands = [
         BotCommand(command="start", description="🚀 Запустить бота"),
-        BotCommand(command="help", description="📖 Помощь"),
-        BotCommand(command="add", description="➕ Добавить канал"),
-        BotCommand(command="list", description="📋 Мои источники"),
-        BotCommand(command="mytopics", description="🗂️ Мои темы"),
-        BotCommand(command="refresh", description="[LOOP] Принудительная проверка"),
         BotCommand(command="activ", description="[OK] Активировать группу"),
+        BotCommand(command="plus", description="➕ Добавить тему"),
     ]
-    
+
     # Английские команды
     en_commands = [
         BotCommand(command="start", description="🚀 Start bot"),
-        BotCommand(command="help", description="📖 Help"),
-        BotCommand(command="add", description="➕ Add channel"),
-        BotCommand(command="list", description="📋 My sources"),
-        BotCommand(command="mytopics", description="🗂️ My topics"),
-        BotCommand(command="refresh", description="[LOOP] Force check"),
         BotCommand(command="activ", description="[OK] Activate group"),
+        BotCommand(command="plus", description="➕ Add topic"),
     ]
-    
+
     # Устанавливаем русские команды как default
     await bot.set_my_commands(ru_commands, scope=BotCommandScopeDefault())
     logger.info(f"[OK] Установлены команды по умолчанию (русский)")
-    
+
     # Здесь мы не можем установить команды для каждого пользователя индивидуально,
     # потому что это нужно делать при каждом запуске бота.
     # Вместо этого, команды будут обновляться при смене языка через отдельный хендлер
@@ -103,24 +96,16 @@ async def update_user_commands(bot: Bot, user_id: int, language: str):
     if language == "en":
         commands = [
             BotCommand(command="start", description="🚀 Start bot"),
-            BotCommand(command="help", description="📖 Help"),
-            BotCommand(command="add", description="➕ Add channel"),
-            BotCommand(command="list", description="📋 My sources"),
-            BotCommand(command="mytopics", description="🗂️ My topics"),
-            BotCommand(command="refresh", description="[LOOP] Force check"),
             BotCommand(command="activ", description="[OK] Activate group"),
+            BotCommand(command="plus", description="➕ Add topic"),
         ]
     else:
         commands = [
             BotCommand(command="start", description="🚀 Запустить бота"),
-            BotCommand(command="help", description="📖 Помощь"),
-            BotCommand(command="add", description="➕ Добавить канал"),
-            BotCommand(command="list", description="📋 Мои источники"),
-            BotCommand(command="mytopics", description="🗂️ Мои темы"),
-            BotCommand(command="refresh", description="[LOOP] Принудительная проверка"),
             BotCommand(command="activ", description="[OK] Активировать группу"),
+            BotCommand(command="plus", description="➕ Добавить тему"),
         ]
-    
+
     scope = BotCommandScopeChat(chat_id=user_id)
     await bot.set_my_commands(commands, scope=scope)
     logger.info(f"[OK] Обновлены команды для пользователя {user_id}: {language}")
