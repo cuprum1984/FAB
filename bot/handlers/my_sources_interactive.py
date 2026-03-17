@@ -5,6 +5,7 @@
 """
 import logging
 import hashlib
+from typing import List, Dict
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -99,7 +100,7 @@ async def _process_my_sources_internal(user_id: int, message: Message, session: 
     logger.info(f"📚 _process_my_sources_internal для пользователя {user_id}")
     logger.info(f"   - bot type: {type(bot)}")
     logger.info(f"   - session type: {type(session)}")
-    
+
     # Проверяем темы
     check_text = get_text(['topic_check', 'message'])
     logger.info(f"🔍 Проверка тем... {check_text}")
@@ -107,18 +108,6 @@ async def _process_my_sources_internal(user_id: int, message: Message, session: 
     await verify_user_topics(user_id, bot, session, check_text)
     logger.info(f"✅ verify_user_topics завершён")
 
-    # Получаем группы - ПРЯМОЙ ЗАПРОС для отладки
-    from sqlalchemy import select
-    from core.models import ManagedGroup
-    
-    # Проверяем ВСЕ группы в БД
-    all_groups_stmt = select(ManagedGroup)
-    all_groups_result = await session.execute(all_groups_stmt)
-    all_groups = all_groups_result.scalars().all()
-    logger.info(f"📊 ВСЕ группы в БД: {len(all_groups)}")
-    for g in all_groups:
-        logger.info(f"   - Группа: {g.telegram_chat_title}, creator_id={g.creator_id}, is_bot_active={g.is_bot_active_in_group}")
-    
     # Получаем группы пользователя
     groups = await get_user_groups(user_id, session, only_existing_topics=True)
     logger.info(f"📊 Найдено групп для пользователя {user_id}: {len(groups) if groups else 0}")
@@ -145,24 +134,86 @@ async def _process_my_sources_internal(user_id: int, message: Message, session: 
         )
         return
 
+    # Для каждой группы получаем топики и источники (как в my_overview.py)
+    overview_data = []
+    total_sources = 0
+
+    for group in groups:
+        chat_id = group["chat_id"]
+        chat_title = group["chat_title"]
+
+        # Получаем топики группы
+        topics_stmt = select(GroupTopic).where(
+            GroupTopic.telegram_chat_id == chat_id,
+            GroupTopic.is_exists_in_tg == True
+        )
+        topics_result = await session.execute(topics_stmt)
+        topics = list(topics_result.scalars().all())
+
+        group_data = {
+            "chat_id": chat_id,
+            "chat_title": chat_title,
+            "topics": []
+        }
+
+        for topic in topics:
+            # Получаем источники для топика
+            stmt = (
+                select(ContentSource, SourceSubscription, TopicSourceAssignment)
+                .join(SourceSubscription, SourceSubscription.source_global_id == ContentSource.source_global_id)
+                .join(TopicSourceAssignment, TopicSourceAssignment.subscription_id == SourceSubscription.subscription_id)
+                .where(
+                    TopicSourceAssignment.topic_identifier == topic.topic_identifier,
+                    SourceSubscription.telegram_chat_id == chat_id
+                )
+            )
+            result = await session.execute(stmt)
+            rows = result.all()
+
+            sources = []
+            for row in rows:
+                source = row[0]
+                source_name = source.channel_title or source.telegram_username or source.youtube_username or "Без названия"
+                sources.append({
+                    "name": source_name,
+                    "source_type": source.source_type
+                })
+
+            total_sources += len(sources)
+
+            group_data["topics"].append({
+                "topic_name": topic.topic_name or "Без названия",
+                "topic_identifier": topic.topic_identifier,
+                "telegram_thread_id": topic.telegram_thread_id,
+                "sources": sources,
+                "is_general": topic.telegram_thread_id is None,
+                "sources_count": len(sources)
+            })
+
+        overview_data.append(group_data)
+
     # Сохраняем в состояние
-    await state.update_data(user_id=user_id, groups=groups, groups_page=0)
-    logger.info(f"✅ Сохранено в состояние: user_id={user_id}, groups={len(groups)}")
-
-    # Импортируем функцию формирования клавиатуры
-    from bot.keyboards import get_groups_inline_kb
-
-    # Формируем клавиатуру через get_groups_inline_kb
-    keyboard = get_groups_inline_kb(groups=groups, page=0, page_size=5, get_text=get_text, back_callback="back_to_main")
-
-    text = (
-        f"<b>📚 Мои источники</b>\n\n"
-        f"<b>📊 Найдено групп:</b> {len(groups)}\n\n"
-        f"<i>Выберите группу для просмотра тем:</i>"
+    await state.update_data(
+        user_id=user_id,
+        groups=groups,
+        overview_data=overview_data,
+        total_groups=len(groups),
+        total_sources=total_sources,
+        groups_page=0,
+        overview_page=0
     )
+    logger.info(f"✅ Сохранено в состояние: user_id={user_id}, groups={len(groups)}, sources={total_sources}")
+
+    # Формируем текст обзора (как в my_overview.py)
+    text = format_sources_overview_page(overview_data, 0, total_sources)
+
+    # Импортируем функцию формирования клавиатуры для обзора
+    from bot.keyboards import get_overview_kb
+
+    # Формируем клавиатуру для навигации по обзору
+    keyboard = get_overview_kb(overview_data, page=0, get_text=get_text)
 
     # Отправляем/обновляем сообщение через update_or_send_menu
-    # НЕ передаём fallback_message — используем только message_id из состояния
     await update_or_send_menu(
         bot=bot,
         chat_id=user_id,
@@ -174,109 +225,174 @@ async def _process_my_sources_internal(user_id: int, message: Message, session: 
     await state.set_state(MySources.viewing_groups)
 
 
+def format_sources_overview_page(overview_data: List[Dict], page: int, total_sources: int) -> str:
+    """Форматировать страницу обзора источников (до 5 групп на странице)"""
+    groups_per_page = 5
+    total_pages = (len(overview_data) + groups_per_page - 1) // groups_per_page if overview_data else 1
+    page = max(0, min(page, total_pages - 1))
+
+    start_idx = page * groups_per_page
+    end_idx = min(start_idx + groups_per_page, len(overview_data))
+    page_groups = overview_data[start_idx:end_idx]
+
+    text = f"<b>📚 Мои источники</b>\n\n"
+    text += f"<b>📊 Найдено групп:</b> {len(overview_data)}\n"
+    text += f"<b>📊 Всего источников:</b> {total_sources}\n\n"
+
+    for group in page_groups:
+        text += f"<b>👥 {group['chat_title']}</b> ({len(group['topics'])})\n"
+
+        for topic in group["topics"]:
+            topic_name = topic["topic_name"]
+            if topic["is_general"]:
+                topic_name = "💬 General"
+            else:
+                topic_name = f"🗨️ {topic_name}"
+
+            sources_count = topic["sources_count"]
+            text += f"   <b>{topic_name}</b> ({sources_count})\n"
+
+            for source in topic["sources"]:
+                icon = "📺" if source["source_type"] == "youtube" else "📰"
+                # Обрезаем длинные имена
+                name = source["name"][:25] + "..." if len(source["name"]) > 25 else source["name"]
+                text += f"       {icon} {name}\n"
+
+        text += "\n"
+
+    if total_pages > 1:
+        text += f"<i>Страница {page + 1}/{total_pages}</i>"
+
+    return text
+
+
+# ========== НАВИГАЦИЯ ПО СТРАНИЦАМ ОБЗОРА ==========
+@router.callback_query(F.data.startswith("overview_page:"))
+async def on_overview_page_change(callback: CallbackQuery, state: FSMContext, get_text: callable):
+    """Навигация по страницам обзора источников"""
+    await callback.answer()
+
+    page = int(callback.data.split(":", 1)[1])
+    data = await state.get_data()
+    overview_data = data.get("overview_data", [])
+    total_sources = data.get("total_sources", 0)
+
+    if not overview_data:
+        return
+
+    total_pages = (len(overview_data) + 4) // 5  # 5 групп на страницу
+    if page < 0 or page >= total_pages:
+        return
+
+    # Обновляем страницу в состоянии
+    await state.update_data(overview_page=page)
+
+    # Формируем текст для новой страницы
+    text = format_sources_overview_page(overview_data, page, total_sources)
+
+    # Обновляем клавиатуру
+    from bot.keyboards import get_overview_kb
+    keyboard = get_overview_kb(overview_data, page=page, get_text=get_text)
+
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=text,
+        keyboard=keyboard,
+        state=state
+    )
+
+
 # ========== ВЫБОР ГРУППЫ ==========
 @router.callback_query(F.data.startswith("list_group:"))
 async def on_group_selected(callback: CallbackQuery, session: AsyncSession, state: FSMContext, bot: Bot, get_text: callable):
-    """Пользователь выбрал группу — показываем топики"""
+    """Пользователь выбрал группу — показываем дерево топиков и источников"""
     chat_id = int(callback.data.split(":")[1])
     logger.info(f"🔍 Выбрана группа: {chat_id}")
 
     # Получаем user_id из callback, а не из состояния!
     user_id = callback.from_user.id
-    
-    data = await state.get_data()
-    groups = data.get('groups', [])
 
-    logger.info(f"📊 Данные из состояния: user_id={user_id}, groups={len(groups) if groups else 0}")
+    # Находим группу в БД
+    group_stmt = select(ManagedGroup).where(ManagedGroup.telegram_chat_id == chat_id)
+    group_result = await session.execute(group_stmt)
+    group_db = group_result.scalar_one_or_none()
 
-    # Если групп нет в состоянии, загружаем их заново
-    if not groups:
-        logger.info(f"🔄 Группы не найдены в состоянии, загружаем заново для пользователя {user_id}")
-        groups = await get_user_groups(user_id, session, only_existing_topics=True)
-        logger.info(f"📊 Загружено групп: {len(groups) if groups else 0}")
-        
-        if not groups:
-            logger.warning(f"⚠️ У пользователя {user_id} нет групп")
-            await callback.answer("❌ Нет групп", show_alert=True)
-            return
-        
-        # Сохраняем в состояние
-        await state.update_data(user_id=user_id, groups=groups, groups_page=0)
-        logger.info(f"✅ Сохранено в состояние: user_id={user_id}, groups={len(groups)}")
+    if not group_db:
+        await callback.answer("❌ Группа не найдена", show_alert=True)
+        return
 
-    # Находим выбранную группу
-    group = next((g for g in groups if g["chat_id"] == chat_id), None)
-    if not group:
-        logger.warning(f"❌ Группа {chat_id} не найдена в состоянии")
-        # Пробуем найти группу напрямую из БД
-        group_stmt = select(ManagedGroup).where(ManagedGroup.telegram_chat_id == chat_id)
-        group_result = await session.execute(group_stmt)
-        group_db = group_result.scalar_one_or_none()
-        
-        if not group_db:
-            await callback.answer("❌ Группа не найдена", show_alert=True)
-            return
-        
-        # Используем данные из БД
-        group = {
-            "chat_id": group_db.telegram_chat_id,
-            "chat_title": group_db.telegram_chat_title or f"Группа {chat_id}"
-        }
-        logger.info(f"✅ Группа найдена в БД: {group['chat_title']}")
+    group = {
+        "chat_id": group_db.telegram_chat_id,
+        "chat_title": group_db.telegram_chat_title or f"Группа {chat_id}"
+    }
 
     # Получаем топики группы
     topics_stmt = select(GroupTopic).where(
         GroupTopic.telegram_chat_id == chat_id,
         GroupTopic.is_exists_in_tg == True
-    )
+    ).order_by(GroupTopic.topic_name)
     topics_result = await session.execute(topics_stmt)
     topics = list(topics_result.scalars().all())
-
-    logger.info(f"📊 Топики из БД: {[(t.topic_name, t.topic_identifier, t.telegram_thread_id) for t in topics]}")
 
     if not topics:
         await callback.answer("❌ В группе нет тем", show_alert=True)
         return
 
-    # Создаём mapping хеш → topic_identifier (чтобы обойти ограничение 64 байта)
-    topic_mapping = {}
+    # Для каждого топика получаем источники
+    topics_data = []
+    total_sources = 0
+
     for topic in topics:
-        # Короткий хеш (8 символов) для callback_data
-        topic_hash = hashlib.md5(topic.topic_identifier.encode()).hexdigest()[:8]
-        topic_mapping[topic_hash] = topic.topic_identifier
+        # Получаем источники для топика
+        stmt = (
+            select(ContentSource, SourceSubscription, TopicSourceAssignment)
+            .join(SourceSubscription, SourceSubscription.source_global_id == ContentSource.source_global_id)
+            .join(TopicSourceAssignment, TopicSourceAssignment.subscription_id == SourceSubscription.subscription_id)
+            .where(
+                TopicSourceAssignment.topic_identifier == topic.topic_identifier,
+                SourceSubscription.telegram_chat_id == chat_id
+            )
+        )
+        result = await session.execute(stmt)
+        rows = result.all()
+
+        sources = []
+        for row in rows:
+            source = row[0]
+            source_name = source.channel_title or source.telegram_username or source.youtube_username or "Без названия"
+            sources.append({
+                "name": source_name,
+                "source_type": source.source_type
+            })
+
+        total_sources += len(sources)
+        topics_data.append({
+            "topic_name": topic.topic_name or "Без названия",
+            "topic_identifier": topic.topic_identifier,
+            "telegram_thread_id": topic.telegram_thread_id,
+            "sources": sources,
+            "is_general": topic.telegram_thread_id is None,
+            "sources_count": len(sources)
+        })
 
     # Сохраняем в состояние
-    await state.update_data(current_group=group, current_topics=topics, topic_mapping=topic_mapping, topics_page=0)
-    logger.info(f"✅ Сохранено в состояние: current_group={group['chat_title']}, topics={len(topics)}, mapping={topic_mapping}")
-
-    # Преобразуем объекты GroupTopic в словари для get_topics_inline_kb
-    topics_as_dicts = [
-        {
-            'topic_name': t.topic_name,
-            'topic_identifier': t.topic_identifier,
-            'telegram_thread_id': t.telegram_thread_id
-        }
-        for t in topics
-    ]
-
-    # Импортируем функцию формирования клавиатуры
-    from bot.keyboards import get_topics_inline_kb
-
-    # Формируем клавиатуру через get_topics_inline_kb (с заголовком группы!)
-    keyboard = get_topics_inline_kb(
-        topics=topics_as_dicts,
-        group_title=group['chat_title'],
-        page=0,
-        page_size=5,
-        get_text=get_text,
-        back_callback="list_back:groups"
+    await state.update_data(
+        current_group=group,
+        topics_data=topics_data,
+        total_sources=total_sources,
+        current_topic_identifier=None  # Пока не выбран конкретный топик
     )
+    logger.info(f"✅ Сохранено в состояние: group={group['chat_title']}, topics={len(topics_data)}, sources={total_sources}")
 
-    text = (
-        f"<b>👥 Группа: {group['chat_title']}</b>\n\n"
-        f"<b>📊 Найдено тем:</b> {len(topics)}\n\n"
-        f"<i>Выберите тему для просмотра источников:</i>"
-    )
+    # Формируем текст дерева (как в my_overview.py)
+    text = format_group_tree(group['chat_title'], topics_data, total_sources)
+
+    # Импортируем функцию формирования клавиатуры для топиков
+    from bot.keyboards import get_topics_tree_kb
+
+    # Формируем клавиатуру с кнопками топиков
+    keyboard = get_topics_tree_kb(topics_data, get_text=get_text, back_callback="list_back:groups")
 
     # Обновляем сообщение через update_or_send_menu
     await update_or_send_menu(
@@ -290,33 +406,61 @@ async def on_group_selected(callback: CallbackQuery, session: AsyncSession, stat
     await state.set_state(MySources.viewing_topics)
 
 
+def format_group_tree(group_title: str, topics_data: List[Dict], total_sources: int) -> str:
+    """Форматировать дерево группы с топиками и источниками"""
+    text = f"<b>👥 Группа: {group_title}</b>\n\n"
+    text += f"<b>📊 Найдено тем:</b> {len(topics_data)}\n"
+    text += f"<b>📊 Всего источников:</b> {total_sources}\n\n"
+
+    for topic in topics_data:
+        # Формируем название топика
+        if topic["is_general"]:
+            topic_name = "💬 General"
+        else:
+            topic_name = f"🗨️ {topic['topic_name']}"
+
+        sources_count = topic["sources_count"]
+        text += f"   <b>{topic_name}</b> ({sources_count})\n"
+
+        # Показываем источники
+        for source in topic["sources"]:
+            icon = "📺" if source["source_type"] == "youtube" else "📰"
+            # Обрезаем длинные имена
+            name = source["name"][:25] + "..." if len(source["name"]) > 25 else source["name"]
+            text += f"       {icon} {name}\n"
+
+        text += "\n"
+
+    return text
+
+
 # ========== ВЫБОР ТОПИКА ==========
 @router.callback_query(F.data.startswith("list_topic:"))
 async def on_topic_selected(callback: CallbackQuery, session: AsyncSession, state: FSMContext, get_text: callable):
-    """Пользователь выбрал топик — показываем источники"""
-    topic_hash_or_id = callback.data.split(":")[1]
+    """Пользователь выбрал топик — показываем источники для редактирования"""
+    import base64
+
+    topic_id_encoded = callback.data.split(":")[1]
     data = await state.get_data()
     current_group = data.get('current_group')
-    topic_mapping = data.get('topic_mapping', {})
+    topics_data = data.get('topics_data', [])
 
-    # Поддерживаем оба формата: хеш и полный identifier (для старых кнопок)
-    if len(topic_hash_or_id) == 8:
-        # Это хеш (8 символов)
-        topic_identifier = topic_mapping.get(topic_hash_or_id)
-        logger.info(f"🔍 Выбор топика (hash): hash={topic_hash_or_id}, identifier={topic_identifier}")
-    else:
-        # Это полный topic_identifier (старая кнопка)
-        topic_identifier = topic_hash_or_id
-        logger.info(f"🔍 Выбор топика (full): identifier={topic_identifier}")
+    # Декодируем topic_identifier из base64
+    try:
+        # Добавляем padding при необходимости
+        padding = 4 - len(topic_id_encoded) % 4
+        if padding != 4:
+            topic_id_encoded += '=' * padding
+        topic_identifier = base64.urlsafe_b64decode(topic_id_encoded).decode()
+        logger.info(f"🔍 Выбор топика (base64): decoded={topic_identifier}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка декодирования topic_identifier: {e}")
+        await callback.answer("❌ Ошибка формата топика", show_alert=True)
+        return
 
     if not current_group:
         logger.error("❌ current_group не найден в состоянии")
         await callback.answer("❌ Ошибка: группа не найдена", show_alert=True)
-        return
-
-    if not topic_identifier:
-        logger.error(f"❌ topic_identifier не найден для {topic_hash_or_id}")
-        await callback.answer("❌ Ошибка: топик не найден", show_alert=True)
         return
 
     # Получаем источники для топика
@@ -347,11 +491,11 @@ async def on_topic_selected(callback: CallbackQuery, session: AsyncSession, stat
             'source_type': source.source_type
         })
 
-    # Получаем название темы для заголовка
+    # Получаем название темы из topics_data
     topic_name = "Без названия"
-    for topic in data.get('current_topics', []):
-        if topic.topic_identifier == topic_identifier:
-            topic_name = topic.topic_name or "Без названия"
+    for topic in topics_data:
+        if topic["topic_identifier"] == topic_identifier:
+            topic_name = topic["topic_name"] or "Без названия"
             break
 
     # Импортируем функцию формирования клавиатуры
@@ -791,20 +935,94 @@ async def on_back_pressed(callback: CallbackQuery, state: FSMContext, bot: Bot, 
         return
 
     elif where_to == "groups":
-        # Возврат к списку групп с пагинацией
-        from bot.keyboards import get_groups_inline_kb
+        # Возврат к дереву всех групп (главный экран /list)
+        overview_data = data.get('overview_data', [])
+        total_sources = data.get('total_sources', 0)
 
-        # Получаем текущую страницу из состояния
-        groups_page = data.get('groups_page', 0)
+        if not overview_data:
+            logger.warning("⚠️ Нет данных overview_data, загружаем заново")
+            # Загружаем данные заново
+            from core.services.destination_service import get_user_groups
+            from sqlalchemy import select
+            from core.models import ContentSource, SourceSubscription, TopicSourceAssignment, GroupTopic
 
-        # Формируем клавиатуру через get_groups_inline_kb
-        keyboard = get_groups_inline_kb(groups=groups, page=groups_page, page_size=5, get_text=get_text, back_callback="back_to_main")
+            user_id = data.get('user_id')
+            if not user_id:
+                await callback.answer("❌ Ошибка: нет данных пользователя", show_alert=True)
+                return
 
-        text = (
-            f"<b>📚 Мои источники</b>\n\n"
-            f"<b>📊 Найдено групп:</b> {len(groups)}\n\n"
-            f"<i>Выберите группу для просмотра тем:</i>"
-        )
+            groups = await get_user_groups(user_id, session, only_existing_topics=True)
+            if not groups:
+                await callback.answer("❌ Нет групп", show_alert=True)
+                return
+
+            # Формируем overview_data
+            overview_data = []
+            total_sources = 0
+            for group in groups:
+                chat_id = group["chat_id"]
+                chat_title = group["chat_title"]
+
+                topics_stmt = select(GroupTopic).where(
+                    GroupTopic.telegram_chat_id == chat_id,
+                    GroupTopic.is_exists_in_tg == True
+                )
+                topics_result = await session.execute(topics_stmt)
+                topics = list(topics_result.scalars().all())
+
+                group_data = {
+                    "chat_id": chat_id,
+                    "chat_title": chat_title,
+                    "topics": []
+                }
+
+                for topic in topics:
+                    stmt = (
+                        select(ContentSource, SourceSubscription, TopicSourceAssignment)
+                        .join(SourceSubscription, SourceSubscription.source_global_id == ContentSource.source_global_id)
+                        .join(TopicSourceAssignment, TopicSourceAssignment.subscription_id == SourceSubscription.subscription_id)
+                        .where(
+                            TopicSourceAssignment.topic_identifier == topic.topic_identifier,
+                            SourceSubscription.telegram_chat_id == chat_id
+                        )
+                    )
+                    result = await session.execute(stmt)
+                    rows = result.all()
+
+                    sources = []
+                    for row in rows:
+                        source = row[0]
+                        sources.append({
+                            "name": source.channel_title or source.telegram_username or source.youtube_username or "Без названия",
+                            "source_type": source.source_type
+                        })
+
+                    total_sources += len(sources)
+                    group_data["topics"].append({
+                        "topic_name": topic.topic_name or "Без названия",
+                        "topic_identifier": topic.topic_identifier,
+                        "telegram_thread_id": topic.telegram_thread_id,
+                        "sources": sources,
+                        "is_general": topic.telegram_thread_id is None,
+                        "sources_count": len(sources)
+                    })
+
+                overview_data.append(group_data)
+
+            # Сохраняем в состояние
+            await state.update_data(
+                overview_data=overview_data,
+                total_sources=total_sources,
+                groups=groups
+            )
+
+        # Формируем текст дерева
+        text = format_sources_overview_page(overview_data, 0, total_sources)
+
+        # Импортируем функцию формирования клавиатуры
+        from bot.keyboards import get_overview_kb
+
+        keyboard = get_overview_kb(overview_data, page=0, get_text=get_text)
 
         await update_or_send_menu(
             bot=callback.bot,
@@ -817,40 +1035,25 @@ async def on_back_pressed(callback: CallbackQuery, state: FSMContext, bot: Bot, 
         await state.set_state(MySources.viewing_groups)
 
     elif where_to == "topics":
-        # Возврат к списку топиков с пагинацией
-        from bot.keyboards import get_topics_inline_kb
-
+        # Возврат к дереву группы (топики + источники)
+        # Используем новый формат с деревом
         current_group = data.get('current_group')
-        topics = data.get('current_topics', [])
+        topics_data = data.get('topics_data', [])
+        total_sources = data.get('total_sources', 0)
 
-        # Преобразуем объекты GroupTopic в словари для get_topics_inline_kb
-        topics_as_dicts = [
-            {
-                'topic_name': t.topic_name,
-                'topic_identifier': t.topic_identifier,
-                'telegram_thread_id': t.telegram_thread_id
-            }
-            for t in topics
-        ]
+        if not current_group or not topics_data:
+            logger.warning("⚠️ Нет данных для возврата к дереву группы")
+            await callback.answer("❌ Ошибка: нет данных о группе", show_alert=True)
+            return
 
-        # Получаем текущую страницу из состояния
-        topics_page = data.get('topics_page', 0)
+        # Формируем текст дерева
+        text = format_group_tree(current_group['chat_title'], topics_data, total_sources)
 
-        # Формируем клавиатуру через get_topics_inline_kb (с заголовком группы!)
-        keyboard = get_topics_inline_kb(
-            topics=topics_as_dicts,
-            group_title=current_group['chat_title'],
-            page=topics_page,
-            page_size=5,
-            get_text=get_text,
-            back_callback="list_back:groups"
-        )
+        # Импортируем функцию формирования клавиатуры для топиков
+        from bot.keyboards import get_topics_tree_kb
 
-        text = (
-            f"<b>👥 Группа: {current_group['chat_title']}</b>\n\n"
-            f"<b>📊 Найдено тем:</b> {len(topics)}\n\n"
-            f"<i>Выберите тему для просмотра источников:</i>"
-        )
+        # Формируем клавиатуру с кнопками топиков
+        keyboard = get_topics_tree_kb(topics_data, get_text=get_text, back_callback="back_to_main")
 
         await update_or_send_menu(
             bot=callback.bot,
