@@ -277,8 +277,16 @@ async def main():
     if settings.ENV == "production":
         try:
             redis = await redis_client.get_client()
-            storage = RedisStorage(redis)
-            logger.info("[OK] Используется RedisStorage (production)")
+            
+            # ✅ TTL из настроек (300 = 5 мин, 86400 = 24 часа, 0 = без TTL)
+            state_ttl = settings.FSM_STATE_TTL if settings.FSM_STATE_TTL > 0 else None
+            
+            storage = RedisStorage(
+                redis,
+                state_ttl=state_ttl
+            )
+            ttl_str = f"{state_ttl} сек" if state_ttl else "без TTL"
+            logger.info(f"[OK] Используется RedisStorage с TTL {ttl_str} (production)")
         except Exception as e:
             logger.error(f"[ERROR] Не удалось подключиться к Redis: {e}")
             logger.warning("[WARN] Использую MemoryStorage как fallback")

@@ -1,11 +1,12 @@
 # core/services/monitoring/telegram_monitor.py
 """
 Проверка Telegram каналов и отправка постов.
+Версия: 6.2 — Bulk update last_seen_at
 """
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -174,6 +175,9 @@ class TelegramMonitor:
             # Сохраняем текущий last_post_id для проверок во время цикла
             current_last_id = source.last_successful_post_id
             last_successful_id = None
+            
+            # ✅ BULK UPDATE: собираем все обновлённые темы
+            updated_topics: Set = set()
 
             for i, post in enumerate(new_posts, 1):
                 post_id = post.get('post_id')
@@ -189,7 +193,8 @@ class TelegramMonitor:
                         assignments=assignments,
                         session=session,
                         current_last_id=current_last_id,
-                        cached_file_id=file_id
+                        cached_file_id=file_id,
+                        updated_topics=updated_topics  # ✅ Передаём множество
                     )
 
                     if post_id:
@@ -203,6 +208,11 @@ class TelegramMonitor:
 
                 if i < len(new_posts):
                     await asyncio.sleep(2.0)
+
+            # ✅ BULK UPDATE: обновляем last_seen_at для всех тем одним запросом
+            if updated_topics:
+                await self._bulk_update_topics(session, updated_topics)
+                logger.info(f"✅ Bulk update: обновлено {len(updated_topics)} тем")
 
             if last_successful_id:
                 try:
@@ -224,6 +234,16 @@ class TelegramMonitor:
             logger.error(f"❌ Ошибка в _check_telegram_source для {source_name}: {e}", exc_info=True)
             # Не делаем rollback и не пробрасываем ошибку — это делается в check_all_sources
 
+    async def _bulk_update_topics(self, session: AsyncSession, updated_topics: Set):
+        """
+        Bulk update last_seen_at для всех обновлённых тем.
+        Один commit на все темы вместо flush после каждой отправки.
+        """
+        for topic in updated_topics:
+            topic.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        
+        await session.commit()
+
     async def _process_telegram_post(
         self,
         post: Dict,
@@ -231,9 +251,13 @@ class TelegramMonitor:
         assignments: List,
         session: AsyncSession,
         current_last_id: Optional[int] = None,
-        cached_file_id: Optional[str] = None
+        cached_file_id: Optional[str] = None,
+        updated_topics: Set = None
     ):
-        """Обработать один Telegram пост"""
+        """
+        Обработать один Telegram пост.
+        updated_topics: множество для bulk update last_seen_at
+        """
         from core.services.monitoring.post_sender import PostSender
 
         post_id = post.get('post_id')
@@ -276,19 +300,21 @@ class TelegramMonitor:
                         file_id=file_id,
                         assignment=assignment,
                         source=source,
-                        session=session
+                        session=session,
+                        updated_topics=updated_topics  # ✅ Передаём множество
                     )
                 else:
                     await post_sender.send_text_to_assignment(
                         post=post,
                         assignment=assignment,
                         source=source,
-                        session=session
+                        session=session,
+                        updated_topics=updated_topics  # ✅ Передаём множество
                     )
 
                 await asyncio.sleep(0.3)
             except Exception as e:
-                logger.error(f"❌ Ошибка отправки поста {post_id_int}: {e}")
+                logger.error(f"❌ Ошибка отправки поста {post_id_int}: {e}", exc_info=False)
 
 
 # Импорты в конце для избежания циклических зависимостей

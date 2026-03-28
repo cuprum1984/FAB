@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # ✅ ИНТЕРВАЛ ПРОВЕРКИ YOUTUBE
     YOUTUBE_PARSING_INTERVAL: int = 1800  # 30 минут
 
+    # ✅ FSM STATE TTL (время жизни состояний)
+    FSM_STATE_TTL: int = 300  # 5 минут (тест), 86400 (продакшен), 0 (без TTL)
+
     @property
     def database_url_async(self) -> str:
         if self.DATABASE_URL:
