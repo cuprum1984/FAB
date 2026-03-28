@@ -31,6 +31,16 @@ class Settings(BaseSettings):
     RATE_LIMIT_YOUTUBE_REFILL: float = 1.0  # Токенов в секунду (YouTube)
     RATE_LIMIT_GLOBAL_PER_MINUTE: int = 60  # Глобальный лимит запросов в минуту
 
+    # ✅ SEMAPHORE для ограничения параллелизма
+    SEMAPHORE_LIMIT: int = 10  # Максимум одновременных запросов к источникам
+
+    # ✅ ЗАЩИТА ОТ СПАМА ПОСЛЕ ПРОСТОЯ
+    DOWNTIME_THRESHOLD_SECONDS: int = 600  # 10 минут простоя
+    DOWNTIME_MAX_POSTS: int = 5  # Максимум постов после простоя
+
+    # ✅ ИНТЕРВАЛ ПРОВЕРКИ YOUTUBE
+    YOUTUBE_PARSING_INTERVAL: int = 1800  # 30 минут
+
     @property
     def database_url_async(self) -> str:
         if self.DATABASE_URL:

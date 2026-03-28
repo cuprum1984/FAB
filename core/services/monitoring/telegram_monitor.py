@@ -9,6 +9,8 @@ from typing import Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.database import async_session
+from core.settings import settings
 from core.models import ContentSource, CachedMedia
 from core.parser.telegram_posts import get_new_posts as get_telegram_posts
 from core.redis_client import get_cached_last_post, set_cached_last_post
@@ -27,9 +29,10 @@ class TelegramMonitor:
         self.bot = bot
         self.monitoring = monitoring_service
 
-    async def check_telegram_source(self, source: ContentSource, session: AsyncSession):
+    async def check_telegram_source(self, source: ContentSource, session: AsyncSession, downtime_seconds: float = 0):
         """
         Проверить Telegram канал и отправить новые посты.
+        downtime_seconds: время простоя в секундах (0 если простоя нет)
         """
         if not source.telegram_username:
             logger.warning(f"⚠️ Источник {source.source_global_id} не имеет telegram_username")
@@ -50,7 +53,6 @@ class TelegramMonitor:
                 # Redis есть, БД пустая — восстанавливаем из Redis
                 logger.info(f"🔄 Восстанавливаю last_successful_post_id из Redis: {cached_id}")
                 source.last_successful_post_id = cached_id
-                await session.flush()
 
             elif source.last_successful_post_id is not None and cached_id is None:
                 # БД есть, Redis пустой — восстанавливаем из БД
@@ -93,7 +95,6 @@ class TelegramMonitor:
                             source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
                             await set_cached_last_post(username, last_post_id_int)
 
-                            await session.flush()
                             await self.monitoring._reset_source_error_stats(source.source_global_id)
 
                             logger.info(f"💾 last_successful_post_id сохранён: {last_post_id_int}")
@@ -108,7 +109,6 @@ class TelegramMonitor:
 
                 # Если не удалось получить посты, всё равно обновляем timestamp
                 source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
-                await session.flush()
                 await self.monitoring._reset_source_error_stats(source.source_global_id)
                 return
 
@@ -122,7 +122,6 @@ class TelegramMonitor:
             if not assignments:
                 logger.debug(f"📭 Нет активных назначений для источника {source_name}")
                 source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
-                await session.flush()
                 await self.monitoring._reset_source_error_stats(source.source_global_id)
                 return
 
@@ -139,11 +138,38 @@ class TelegramMonitor:
             if not new_posts:
                 logger.debug(f"📭 Нет новых постов в {source_name}")
                 source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
-                await session.flush()
                 await self.monitoring._reset_source_error_stats(source.source_global_id)
                 return
 
             logger.info(f"✅ Найдено {len(new_posts)} новых постов в {source_name}")
+
+            # ✅ ЗАЩИТА ОТ СПАМА ПОСЛЕ ПРОСТОЯ
+            if downtime_seconds > 0:
+                max_posts = settings.DOWNTIME_MAX_POSTS
+                original_count = len(new_posts)
+
+                if len(new_posts) > max_posts:
+                    # Оставляем только последние N постов
+                    new_posts = new_posts[-max_posts:]
+                    logger.warning(
+                        f"⚠️ ПРОСТОЙ: пропущено {original_count - max_posts} старых постов, "
+                        f"отправлено только {len(new_posts)} последних"
+                    )
+
+            # ✅ ОПТИМИЗАЦИЯ: пакетная загрузка file_id для всех постов
+            post_ids = [p['post_id'] for p in new_posts if p.get('post_id')]
+            cached_media_map = {}
+
+            if post_ids:
+                logger.debug(f"📦 Пакетная загрузка file_id для {len(post_ids)} постов...")
+                stmt = select(CachedMedia).where(
+                    CachedMedia.source_global_id == source.source_global_id,
+                    CachedMedia.post_id.in_(post_ids)
+                )
+                result = await session.execute(stmt)
+                cached_media_list = result.scalars().all()
+                cached_media_map = {cm.post_id: cm.file_id for cm in cached_media_list}
+                logger.info(f"✅ Загружено {len(cached_media_map)} file_id из кеша")
 
             # Сохраняем текущий last_post_id для проверок во время цикла
             current_last_id = source.last_successful_post_id
@@ -154,25 +180,29 @@ class TelegramMonitor:
                 logger.info(f"   📝 Обработка поста {i}/{len(new_posts)}: ID={post_id}")
 
                 try:
+                    # ✅ Передаём file_id из кеша
+                    file_id = cached_media_map.get(post_id)
+
                     await self._process_telegram_post(
                         post=post,
                         source=source,
                         assignments=assignments,
                         session=session,
-                        current_last_id=current_last_id
+                        current_last_id=current_last_id,
+                        cached_file_id=file_id
                     )
 
                     if post_id:
                         last_successful_id = post_id
 
-                    if i < len(new_posts):
-                        await asyncio.sleep(2.0)
-
                 except Exception as e:
                     logger.error(f"❌ Ошибка обработки поста {post_id}: {e}")
-                    await session.rollback()
+                    # Не делаем rollback в цикле — продолжаем обработку
                     await asyncio.sleep(2.0)
                     continue
+
+                if i < len(new_posts):
+                    await asyncio.sleep(2.0)
 
             if last_successful_id:
                 try:
@@ -183,15 +213,16 @@ class TelegramMonitor:
                     logger.error(f"   ❌ Ошибка конвертации финального ID {last_successful_id}: {e}")
 
             source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
-            await session.flush()
             await self.monitoring._reset_source_error_stats(source.source_global_id)
+
+            # ✅ ФИКСАЦИЯ изменений в БД
+            await session.commit()
 
             logger.info(f"✅ Обработано {len(new_posts)} постов из {source_name}")
 
         except Exception as e:
             logger.error(f"❌ Ошибка в _check_telegram_source для {source_name}: {e}", exc_info=True)
-            await session.rollback()
-            raise
+            # Не делаем rollback и не пробрасываем ошибку — это делается в check_all_sources
 
     async def _process_telegram_post(
         self,
@@ -199,11 +230,12 @@ class TelegramMonitor:
         source: ContentSource,
         assignments: List,
         session: AsyncSession,
-        current_last_id: Optional[int] = None
+        current_last_id: Optional[int] = None,
+        cached_file_id: Optional[str] = None
     ):
         """Обработать один Telegram пост"""
         from core.services.monitoring.post_sender import PostSender
-        
+
         post_id = post.get('post_id')
         if not post_id:
             return
@@ -226,30 +258,13 @@ class TelegramMonitor:
 
         logger.info(f"📝 Новый пост {post_id_int} из {source.telegram_username}")
 
-        media_items = post.get('media', [])
-        logger.debug(f"📸 Медиа в посте: {len(media_items)} шт.")
+        # ✅ Используем file_id из кеша (передан извне)
+        file_id = cached_file_id
 
-        file_id = None
-
-        if media_items and len(media_items) > 0:
-            media = media_items[0]
-            media_url = media.get('url')
-
-            if media_url:
-                logger.debug(f"🔍 Ищу file_id для source={source.source_global_id}, post_id={post_id}")
-
-                stmt = select(CachedMedia).where(
-                    CachedMedia.source_global_id == source.source_global_id,
-                    CachedMedia.post_id == post_id
-                )
-                result = await session.execute(stmt)
-                cached = result.scalar_one_or_none()
-
-                if cached:
-                    file_id = cached.file_id
-                    logger.info(f"✅ Найден file_id в кеше: {file_id}")
-                else:
-                    logger.debug(f"❌ file_id НЕ НАЙДЕН в кеше")
+        if file_id:
+            logger.info(f"✅ Используем file_id из кеша: {file_id}")
+        else:
+            logger.debug(f"❌ file_id НЕ НАЙДЕН в кеше")
 
         post_sender = PostSender(self.bot)
 

@@ -55,6 +55,7 @@ async def update_source_last_post_id(
     """
     Обновить ID последнего успешного поста для источника.
     Обновляет Redis-кеш при наличии.
+    Примечание: commit выполняется на уровне вызывающей функции.
 
     Args:
         source: Источник контента
@@ -73,16 +74,16 @@ async def update_source_last_post_id(
                 await set_cached_last_post(source.telegram_username, post_id)
                 logger.debug(f"✅ Redis кеш обновлён для @{source.telegram_username}: {post_id}")
 
-            await session.commit()
-            logger.debug(f"💾 БД обновлена для {source.source_global_id}: last_successful_post_id={post_id}")
+            # ✅ УБРАЛИ session.commit() — commit выполняется на уровне check_telegram_source
+            logger.debug(f"💾 БД подготовлена к обновлению для {source.source_global_id}: last_successful_post_id={post_id}")
         else:
             # Просто обновляем время проверки
             source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
-            await session.commit()
+            # ✅ УБРАЛИ session.commit() — commit выполняется на уровне check_telegram_source
             logger.debug(f"⏱️ Обновлено время проверки для {source.source_global_id}")
 
     except Exception as e:
-        await session.rollback()
+        # ✅ УБРАЛИ session.rollback() — rollback выполняется на уровне check_all_sources
         logger.error(f"❌ Ошибка обновления last_successful_post_id для {source.source_global_id}: {e}")
         raise
 
