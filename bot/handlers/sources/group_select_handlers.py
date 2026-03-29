@@ -19,6 +19,14 @@ router = Router(name="sources_group_select")
 @router.callback_query(AddChannel.choose_group, F.data.startswith("list_group:"))
 async def on_group_selected(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
     """Пользователь выбрал группу — показываем темы в этой группе (ОБНОВЛЯЕМ то же сообщение)."""
+    
+    # ✅ ПРОВЕРКА ТАЙМАУТА (TTL истёк)
+    data = await state.get_data()
+    if not data:
+        logger.info(f"⏱️ User {callback.from_user.id}: состояние истекло (TTL) на выборе группы")
+        await callback.answer("⏱️ Сессия истекла. Начните заново: /add", show_alert=True)
+        return
+    
     await callback.answer()
 
     # Извлекаем chat_id группы

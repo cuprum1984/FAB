@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import async_session
+from core.settings import settings
 from core.services.monitoring.telegram_monitor import TelegramMonitor
 from core.services.monitoring.youtube_monitor import YouTubeMonitor
 from core.services.monitoring.group_checker import GroupChecker
@@ -84,7 +85,7 @@ class MonitoringService:
     # ----------------------------------------------------------------------
 
     async def check_all_sources(self, session: AsyncSession):
-        """Проверить все источники."""
+        """Проверить все источники с ограничением параллелизма."""
         logger.info("🔍 Проверяю источники...")
 
         try:
@@ -94,45 +95,82 @@ class MonitoringService:
 
             logger.info(f"📊 Найдено источников: {len(sources)}")
 
-            for source in sources:
-                try:
-                    if not await self._check_source_security(source, session):
-                        logger.warning(f"⏭️ Пропускаю небезопасный источник {source.source_global_id}")
-                        continue
+            # Создаём semaphore для ограничения параллелизма
+            semaphore = asyncio.Semaphore(settings.SEMAPHORE_LIMIT)
 
-                    if not await self._should_check_source(source):
-                        continue
+            async def check_with_semaphore(source):
+                """Обёртка для проверки источника с semaphore."""
+                # ✅ СОЗДАЁМ ОТДЕЛЬНУЮ СЕССИЮ ДЛЯ КАЖДОГО ИСТОЧНИКА
+                async with async_session() as source_session:
+                    async with semaphore:
+                        await self._check_single_source(source, source_session)
 
-                    # ✅ ПРОВЕРКА: есть ли активные назначения у источника
-                    if not await self._has_active_assignments(source.source_global_id, session):
-                        logger.debug(f"📭 Пропускаю источник {source.source_global_id}: нет активных назначений")
-                        source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
-                        await session.flush()
-                        continue
+            # Создаём задачи для всех источников
+            tasks = [check_with_semaphore(source) for source in sources]
 
-                    if source.source_type == 'telegram':
-                        await self.telegram_monitor.check_telegram_source(source, session)
-                    elif source.source_type == 'youtube':
-                        await self.youtube_monitor.check_youtube_source(source, session)
-                    else:
-                        logger.warning(f"⚠️ Неизвестный тип источника: {source.source_type}")
-
-                except Exception as e:
-                    logger.error(f"❌ Ошибка проверки источника {source.source_global_id}: {e}")
-                    await self._update_source_error_stats(source.source_global_id)
-                    await session.rollback()
-
-            await session.commit()
+            # Выполняем с ограничением параллелизма
+            # ✅ commit выполняется на уровне каждого источника в своей сессии
+            await asyncio.gather(*tasks, return_exceptions=True)
 
         except Exception as e:
             await session.rollback()
-            logger.error(f"❌ Критическая ошибка в check_all_sources: {e}")
+            logger.error(f"❌ Критическая ошибка в check_all_sources: {e}", exc_info=True)
             raise
+
+    async def _check_single_source(self, source, session: AsyncSession):
+        """Проверка одного источника (вызывается с semaphore)."""
+        try:
+            if not await self._check_source_security(source, session):
+                logger.warning(f"⏭️ Пропускаю небезопасный источник {source.source_global_id}")
+                return
+
+            if not await self._should_check_source(source):
+                return
+
+            # ✅ ПРОВЕРКА: есть ли активные назначения у источника
+            if not await self._has_active_assignments(source.source_global_id, session):
+                logger.debug(f"📭 Пропускаю источник {source.source_global_id}: нет активных назначений")
+                source.last_checked_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+                await session.flush()
+                return
+
+            # ✅ ЗАЩИТА ОТ СПАМА ПОСЛЕ ПРОСТОЯ
+            downtime_seconds = await self._check_downtime(source)
+            if downtime_seconds > 0:
+                logger.warning(f"⚠️ ПРОСТОЙ: источник {source.source_global_id} не проверялся {downtime_seconds/60:.1f} мин")
+
+            if source.source_type == 'telegram':
+                await self.telegram_monitor.check_telegram_source(source, session, downtime_seconds)
+            elif source.source_type == 'youtube':
+                await self.youtube_monitor.check_youtube_source(source, session, downtime_seconds)
+            else:
+                logger.warning(f"⚠️ Неизвестный тип источника: {source.source_type}")
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка проверки источника {source.source_global_id}: {e}", exc_info=True)
+            await self._update_source_error_stats(source.source_global_id)
+            # Не делаем rollback здесь — это делается в check_all_sources
+
+    async def _check_downtime(self, source) -> float:
+        """
+        Проверить длительность простоя источника.
+        Возвращает время простоя в секундах (0 если простоя нет).
+        """
+        if not source.last_checked_timestamp:
+            return 0  # Источник никогда не проверялся — это не простой
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        downtime = (now - source.last_checked_timestamp).total_seconds()
+
+        if downtime > settings.DOWNTIME_THRESHOLD_SECONDS:
+            return downtime
+
+        return 0  # Простоя нет
 
     async def _should_check_source(self, source) -> bool:
         """
         Проверяет, пора ли проверять источник.
-        Для YouTube интервал 30 минут, для Telegram 5 минут.
+        Для YouTube интервал из настроек (30 минут), для Telegram 5 минут.
         """
         stats = self.source_stats.get(source.source_global_id, {})
         consecutive_errors = stats.get('consecutive_errors', 0)
@@ -147,11 +185,11 @@ class MonitoringService:
                 logger.debug(f"⏸️ Пропускаю {source.source_global_id} (3+ ошибок подряд)")
                 return False
 
-        # Определяем интервал в зависимости от типа источника
+        # ✅ Определяем интервал в зависимости от типа источника
         if source.source_type == 'youtube':
-            interval = 1800  # 30 минут для YouTube
+            interval = settings.YOUTUBE_PARSING_INTERVAL  # 30 минут из настроек
         else:
-            interval = 300   # 5 минут для Telegram
+            interval = settings.DEFAULT_PARSING_INTERVAL  # 5 минут
 
         if source.last_checked_timestamp:
             seconds_since = (datetime.now(timezone.utc).replace(tzinfo=None) - source.last_checked_timestamp).total_seconds()

@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from core.models import ContentSource, TopicSourceAssignment, SourceSubscription, GroupTopic, ManagedGroup
 from core.parser.youtube_simple import get_parser
 from core.services.destination_service import update_source_last_post_id
+from core.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ class YouTubeSimpleMonitoringService:
         self.parser = get_parser()
         self._processed_videos = set()
     
-    async def check_source(self, source: ContentSource, session: AsyncSession):
+    async def check_source(self, source: ContentSource, session: AsyncSession, downtime_seconds: float = 0):
         """Проверить YouTube канал на новые видео"""
         
         if source.source_type != 'youtube':
@@ -90,9 +91,8 @@ class YouTubeSimpleMonitoringService:
 
         except Exception as e:
             logger.error(f"❌ Ошибка проверки YouTube канала {source_name}: {e}")
-            await session.rollback()
-            raise
-        
+            # Не делаем rollback и не пробрасываем ошибку — это делается в check_all_sources
+
         finally:
             # Случайная задержка между каналами
             await asyncio.sleep(random.uniform(5, 15))

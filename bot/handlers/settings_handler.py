@@ -19,8 +19,7 @@ from core.models import (
     UserChannelSubscription,
     SourceSubscription,
     TopicSourceAssignment,
-    UserPreferences,
-    UserCachedMedia
+    UserPreferences
 )
 from bot.states import Settings
 from bot.keyboards import (
@@ -174,12 +173,8 @@ async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, sessio
         # 4. Удаляем настройки пользователя
         del_prefs = delete(UserPreferences).where(UserPreferences.user_id == user_id)
         await session.execute(del_prefs)
-        
-        # 5. Удаляем личный кеш
-        del_cache = delete(UserCachedMedia).where(UserCachedMedia.user_id == user_id)
-        await session.execute(del_cache)
-        
-        # 6. Помечаем аккаунт
+
+        # 5. Помечаем аккаунт
         acc_stmt = select(TelegramAccount).where(TelegramAccount.telegram_account_id == user_id)
         acc_result = await session.execute(acc_stmt)
         account = acc_result.scalar_one_or_none()
@@ -191,8 +186,8 @@ async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, sessio
             account.is_bot_blocked = True
         
         await session.commit()
-        
-        # 7. Очищаем Redis кеш
+
+        # 6. Очищаем Redis кеш
         try:
             await redis_client.flush()
         except:

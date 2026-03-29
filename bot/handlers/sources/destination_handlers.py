@@ -21,6 +21,14 @@ router = Router(name="sources_destinations")
 @router.callback_query(AddChannel.choose_destination, F.data.startswith("list_topic:"))
 async def process_topic_selected(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
     """Пользователь выбрал тему — финализируем выбор."""
+    
+    # ✅ ПРОВЕРКА ТАЙМАУТА (TTL истёк)
+    data = await state.get_data()
+    if not data:
+        logger.info(f"⏱️ User {callback.from_user.id}: состояние истекло (TTL) на выборе топика")
+        await callback.answer("⏱️ Сессия истекла. Начните заново: /add", show_alert=True)
+        return
+    
     await callback.answer()
     
     # Получаем данные

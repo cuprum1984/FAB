@@ -13,6 +13,7 @@ import os
 import signal
 from pathlib import Path
 from datetime import datetime
+from typing import Optional
 
 # Добавляем корневую папку в путь
 sys.path.append(str(Path(__file__).parent.parent))
@@ -33,6 +34,7 @@ from core.services.monitoring_service import start_monitoring, stop_monitoring
 from core.parser.youtube_simple import get_parser as get_youtube_parser, close_parser as close_youtube_parser
 from core.models import UserPreferences
 from core.utils.i18n import create_i18n
+from core.tasks.dispatcher import TaskDispatcher, set_dispatcher
 
 # 👇 Middleware
 from bot.middlewares import DBSessionMiddleware
@@ -63,6 +65,7 @@ logger = logging.getLogger(__name__)
 # Глобальные переменные для graceful shutdown
 shutdown_event = asyncio.Event()
 tasks: list[asyncio.Task] = []
+task_dispatcher: Optional[TaskDispatcher] = None
 
 
 async def set_bot_commands(bot: Bot):
@@ -139,27 +142,33 @@ async def check_connections() -> bool:
 
 async def on_startup(bot: Bot):
     """Действия при запуске"""
+    global task_dispatcher
+
     logger.info("=" * 50)
     logger.info("🚀 ЗАПУСК ОСНОВНОГО БОТА MyAggryBot")
     logger.info(f"📅 Время запуска: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"🔧 Режим: {settings.ENV.upper()}")
     logger.info("=" * 50)
-    
+
     try:
         await init_db()
         logger.info("[OK] База данных инициализирована")
-        
+
         await redis_client.init()
         logger.info("[OK] Redis клиент инициализирован")
-        
+
         if not await check_connections():
             logger.warning("[WARN] Бот будет запущен, но возможны проблемы")
-        
+
         await set_bot_commands(bot)
-        
-        await start_monitoring(bot, interval_minutes=5)
-        logger.info("[OK] Мониторинг источников запущен")
-        
+
+        # ✅ ЗАПУСК ЧЕРЕЗ TASKDISPATCHER
+        task_dispatcher = TaskDispatcher(bot)
+        set_dispatcher(task_dispatcher)
+        asyncio.create_task(task_dispatcher.start_all(), name="task_dispatcher_start")
+
+        logger.info("[OK] Мониторинг источников запущен через TaskDispatcher")
+
         logger.info("📦 Компоненты:")
         logger.info("  • Основной бот: v5.2")
         logger.info("  • Парсер YouTube (HTML): v1.0")
@@ -167,11 +176,12 @@ async def on_startup(bot: Bot):
         logger.info("  • Мониторинг: v4.0")
         logger.info("  • Локализация: i18n (en/ru)")
         logger.info("  • Темы: авто-сохранение через Bot API")
-        
+        logger.info("  • TaskDispatcher: v6.1")
+
         logger.info("=" * 50)
         logger.info("[BOT] БОТ ГОТОВ К РАБОТЕ")
         logger.info("=" * 50)
-        
+
     except Exception as e:
         logger.error(f"[ERROR] Критическая ошибка при запуске: {e}", exc_info=True)
         raise
@@ -179,41 +189,51 @@ async def on_startup(bot: Bot):
 
 async def on_shutdown(bot: Bot):
     """Действия при остановке"""
+    global task_dispatcher
+
     logger.info("=" * 50)
     logger.info("🛑 ОСТАНОВКА БОТА")
     logger.info(f"📅 Время остановки: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("=" * 50)
-    
+
     shutdown_event.set()
-    
-    # Останавливаем мониторинг
+
+    # ✅ ОСТАНОВКА ЧЕРЕЗ TASKDISPATCHER
+    if task_dispatcher:
+        try:
+            await task_dispatcher.stop_all()
+            logger.info("[OK] TaskDispatcher остановлен")
+        except Exception as e:
+            logger.error(f"[ERROR] Ошибка при остановке TaskDispatcher: {e}")
+
+    # Останавливаем мониторинг (для обратной совместимости)
     try:
         await stop_monitoring()
         logger.info("[OK] Мониторинг остановлен")
     except Exception as e:
         logger.error(f"[ERROR] Ошибка при остановке мониторинга: {e}")
-    
+
     # Закрываем YouTube HTML парсер
     try:
         await close_youtube_parser()
         logger.info("[OK] YouTube простой парсер закрыт")
     except Exception as e:
         logger.error(f"[ERROR] Ошибка при закрытии YouTube HTML парсера: {e}")
-    
+
     # Закрываем Redis
     try:
         await redis_client.close()
         logger.info("[OK] Redis соединение закрыто")
     except Exception as e:
         logger.error(f"[ERROR] Ошибка при закрытии Redis: {e}")
-    
+
     # Завершаем фоновые задачи
     if tasks:
         logger.info(f"⏳ Ожидание завершения {len(tasks)} фоновых задач...")
         for task in tasks:
             if not task.done():
                 task.cancel()
-        
+
         try:
             await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=5.0)
             logger.info("[OK] Все фоновые задачи завершены")
@@ -221,14 +241,14 @@ async def on_shutdown(bot: Bot):
             logger.warning("[WARN] Некоторые задачи не завершились вовремя")
         except Exception as e:
             logger.error(f"[ERROR] Ошибка при завершении задач: {e}")
-    
+
     # Закрываем сессию бота
     try:
         await bot.session.close()
         logger.info("[OK] Сессия бота закрыта")
     except Exception as e:
         logger.error(f"[ERROR] Ошибка при закрытии сессии бота: {e}")
-    
+
     logger.info("=" * 50)
     logger.info("👋 БОТ ОСТАНОВЛЕН")
     logger.info("=" * 50)
@@ -257,8 +277,16 @@ async def main():
     if settings.ENV == "production":
         try:
             redis = await redis_client.get_client()
-            storage = RedisStorage(redis)
-            logger.info("[OK] Используется RedisStorage (production)")
+            
+            # ✅ TTL из настроек (300 = 5 мин, 86400 = 24 часа, 0 = без TTL)
+            state_ttl = settings.FSM_STATE_TTL if settings.FSM_STATE_TTL > 0 else None
+            
+            storage = RedisStorage(
+                redis,
+                state_ttl=state_ttl
+            )
+            ttl_str = f"{state_ttl} сек" if state_ttl else "без TTL"
+            logger.info(f"[OK] Используется RedisStorage с TTL {ttl_str} (production)")
         except Exception as e:
             logger.error(f"[ERROR] Не удалось подключиться к Redis: {e}")
             logger.warning("[WARN] Использую MemoryStorage как fallback")

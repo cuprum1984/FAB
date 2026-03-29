@@ -12,7 +12,7 @@ from .groups import ManagedGroup, GroupTopic
 from .sources import ContentSource, SourceSubscription
 from .assignments import TopicSourceAssignment
 from .subscriptions import UserChannelSubscription
-from .cache import CachedMedia, UserCachedMedia
+from .cache import CachedMedia
 
 __all__ = [
     "Base",
@@ -25,5 +25,4 @@ __all__ = [
     "TopicSourceAssignment",
     "UserChannelSubscription",
     "CachedMedia",
-    "UserCachedMedia",
 ]

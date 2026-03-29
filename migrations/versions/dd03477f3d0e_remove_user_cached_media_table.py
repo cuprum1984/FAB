@@ -1,8 +1,8 @@
-"""22_02_REFACT_DB
+"""remove_user_cached_media_table
 
-Revision ID: 31ff718b59e7
+Revision ID: dd03477f3d0e
 Revises: 
-Create Date: 2026-02-22 10:21:51.402772
+Create Date: 2026-03-28 23:39:14.775110
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '31ff718b59e7'
+revision: str = 'dd03477f3d0e'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -25,10 +25,9 @@ def upgrade() -> None:
     sa.Column('source_global_id', sa.String(length=256), nullable=False),
     sa.Column('source_type', sa.String(length=50), nullable=False),
     sa.Column('telegram_username', sa.String(length=100), nullable=True),
+    sa.Column('channel_title', sa.String(length=255), nullable=True),
     sa.Column('feed_url', sa.String(length=512), nullable=True),
     sa.Column('youtube_username', sa.String(length=100), nullable=True),
-    sa.Column('title', sa.String(length=255), nullable=True),
-    sa.Column('description', sa.Text(), nullable=True),
     sa.Column('created_timestamp', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
     sa.Column('last_successful_post_id', sa.BigInteger(), nullable=True),
     sa.Column('last_video_id', sa.String(length=100), nullable=True),
@@ -123,6 +122,7 @@ def upgrade() -> None:
     sa.Column('topic_name', sa.String(length=255), nullable=False),
     sa.Column('is_closed', sa.Boolean(), server_default='false', nullable=False),
     sa.Column('is_exists_in_tg', sa.Boolean(), server_default='true', nullable=False),
+    sa.Column('last_seen_at', sa.DateTime(), nullable=True),
     sa.Column('created_by_telegram_account_id', sa.BigInteger(), nullable=True),
     sa.Column('created_timestamp', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['created_by_telegram_account_id'], ['telegram_accounts.telegram_account_id'], ondelete='SET NULL'),
@@ -133,6 +133,7 @@ def upgrade() -> None:
     op.create_index('idx_topic_closed', 'group_topics', ['is_closed'], unique=False)
     op.create_index('idx_topic_created', 'group_topics', ['created_timestamp'], unique=False)
     op.create_index('idx_topic_exists', 'group_topics', ['is_exists_in_tg'], unique=False)
+    op.create_index('idx_topic_last_seen', 'group_topics', ['last_seen_at'], unique=False)
     op.create_index('idx_topic_thread_id', 'group_topics', ['telegram_thread_id'], unique=False)
     op.create_table('source_subscriptions',
     sa.Column('subscription_id', sa.Integer(), nullable=False),
@@ -149,28 +150,6 @@ def upgrade() -> None:
     op.create_index('idx_subscription_added_by', 'source_subscriptions', ['added_by_telegram_account_id'], unique=False)
     op.create_index('idx_subscription_chat_source', 'source_subscriptions', ['telegram_chat_id', 'source_global_id'], unique=False)
     op.create_index('idx_subscription_timestamp', 'source_subscriptions', ['subscription_timestamp'], unique=False)
-    op.create_table('user_cached_media',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('user_id', sa.BigInteger(), nullable=False),
-    sa.Column('chat_id', sa.BigInteger(), nullable=True),
-    sa.Column('message_id', sa.BigInteger(), nullable=False),
-    sa.Column('file_id', sa.String(length=512), nullable=False),
-    sa.Column('file_type', sa.String(length=50), nullable=False),
-    sa.Column('file_size', sa.BigInteger(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.Column('expires_at', sa.DateTime(), nullable=False),
-    sa.Column('last_accessed', sa.DateTime(), nullable=True),
-    sa.Column('caption', sa.Text(), nullable=True),
-    sa.Column('post_url', sa.String(length=512), nullable=True),
-    sa.ForeignKeyConstraint(['chat_id'], ['managed_groups.telegram_chat_id'], ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['user_id'], ['telegram_accounts.telegram_account_id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('user_id', 'chat_id', 'message_id', name='uq_user_chat_message')
-    )
-    op.create_index('idx_user_media_accessed', 'user_cached_media', ['last_accessed'], unique=False)
-    op.create_index('idx_user_media_expires', 'user_cached_media', ['expires_at'], unique=False)
-    op.create_index('idx_user_media_file_id', 'user_cached_media', ['file_id'], unique=False)
-    op.create_index('idx_user_media_user', 'user_cached_media', ['user_id'], unique=False)
     op.create_table('topic_source_assignments',
     sa.Column('assignment_id', sa.Integer(), nullable=False),
     sa.Column('topic_identifier', sa.String(length=128), nullable=False),
@@ -194,16 +173,12 @@ def downgrade() -> None:
     op.drop_index('idx_assignment_timestamp', table_name='topic_source_assignments')
     op.drop_index('idx_assignment_subscription', table_name='topic_source_assignments')
     op.drop_table('topic_source_assignments')
-    op.drop_index('idx_user_media_user', table_name='user_cached_media')
-    op.drop_index('idx_user_media_file_id', table_name='user_cached_media')
-    op.drop_index('idx_user_media_expires', table_name='user_cached_media')
-    op.drop_index('idx_user_media_accessed', table_name='user_cached_media')
-    op.drop_table('user_cached_media')
     op.drop_index('idx_subscription_timestamp', table_name='source_subscriptions')
     op.drop_index('idx_subscription_chat_source', table_name='source_subscriptions')
     op.drop_index('idx_subscription_added_by', table_name='source_subscriptions')
     op.drop_table('source_subscriptions')
     op.drop_index('idx_topic_thread_id', table_name='group_topics')
+    op.drop_index('idx_topic_last_seen', table_name='group_topics')
     op.drop_index('idx_topic_exists', table_name='group_topics')
     op.drop_index('idx_topic_created', table_name='group_topics')
     op.drop_index('idx_topic_closed', table_name='group_topics')

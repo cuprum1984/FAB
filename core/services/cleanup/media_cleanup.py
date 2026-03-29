@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.models import CachedMedia, UserCachedMedia
+from core.models import CachedMedia
 from .base import logger, console_print
 
 
@@ -49,31 +49,7 @@ async def cleanup_expired_media(session: AsyncSession):
             del_main = delete(CachedMedia).where(CachedMedia.expires_at < now)
             await session.execute(del_main)
 
-        # Очищаем пользовательский кеш
-        stmt_user = select(UserCachedMedia).where(UserCachedMedia.expires_at < now)
-        result_user = await session.execute(stmt_user)
-        expired_user = result_user.scalars().all()
-
-        if expired_user:
-            msg = f"📊 Найдено {len(expired_user)} устаревших записей в пользовательском кеше:"
-            logger.info(msg)
-            console_print(msg)
-
-            for media in expired_user[:5]:
-                log_msg = f"   🗑️ Пользователь {media.user_id}: файл {media.file_id[:20]}..., истёк {media.expires_at}"
-                logger.info(log_msg)
-                console_print(log_msg)
-
-            if len(expired_user) > 5:
-                log_msg = f"      ... и ещё {len(expired_user) - 5} записей"
-                logger.info(log_msg)
-                console_print(log_msg)
-
-            # Удаляем
-            del_user = delete(UserCachedMedia).where(UserCachedMedia.expires_at < now)
-            await session.execute(del_user)
-
-        msg = f"✅ Очистка кеша: удалено {len(expired_main)} основных, {len(expired_user)} пользовательских записей"
+        msg = f"✅ Очистка кеша: удалено {len(expired_main)} записей"
         logger.info(msg)
         console_print(msg)
 

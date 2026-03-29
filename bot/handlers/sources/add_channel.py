@@ -65,6 +65,14 @@ async def cmd_add_channel(message: Message, state: FSMContext, session: AsyncSes
 @router.message(AddChannel.waiting_for_username)
 async def process_channel_username(message: Message, state: FSMContext, session: AsyncSession, get_text: callable, bot=None):
     """Обработать ввод username канала или ссылки — сразу проверяем и добавляем."""
+    
+    # ✅ ПРОВЕРКА ТАЙМАУТА (TTL истёк)
+    data = await state.get_data()
+    if not data:
+        logger.info(f"⏱️ User {message.from_user.id}: состояние истекло (TTL) — начинаем заново")
+        await message.answer("⏱️ Сессия истекла. Начните заново: /add")
+        return
+    
     if bot is None:
         bot = message.bot
 
