@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     )
 
     BOT_TOKEN: str
-    BOT_TOKEN_HELPER: str
     DATABASE_URL: str
     #API_ID: int  # ID из my.telegram.org
     #API_HASH: str  # Hash из my.telegram.org

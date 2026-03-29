@@ -1,6 +1,6 @@
 # core/models/cache.py
 """
-Модели кеша: CachedMedia, UserCachedMedia
+Модели кеша: CachedMedia
 """
 from datetime import datetime
 from typing import Optional
@@ -36,42 +36,3 @@ class CachedMedia(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(nullable=False)
     last_used: Mapped[Optional[datetime]] = mapped_column(nullable=True)
-
-
-class UserCachedMedia(Base):
-    """Личный кеш Васи (бот-помощник)"""
-    __tablename__ = "user_cached_media"
-    __table_args__ = (
-        UniqueConstraint("user_id", "chat_id", "message_id", name="uq_user_chat_message"),
-        Index('idx_user_media_user', 'user_id'),
-        Index('idx_user_media_file_id', 'file_id'),
-        Index('idx_user_media_expires', 'expires_at'),
-        Index('idx_user_media_accessed', 'last_accessed'),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-
-    user_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("telegram_accounts.telegram_account_id", ondelete="CASCADE"),
-        nullable=False
-    )
-
-    chat_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger,
-        ForeignKey("managed_groups.telegram_chat_id", ondelete="SET NULL"),
-        nullable=True
-    )
-
-    message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-
-    file_id: Mapped[str] = mapped_column(String(512), nullable=False)
-    file_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    file_size: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(nullable=False)
-    last_accessed: Mapped[Optional[datetime]] = mapped_column(nullable=True)
-
-    caption: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    post_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
