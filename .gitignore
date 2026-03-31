@@ -152,7 +152,6 @@ clear_db.py
 clear_redis.py
 debug_db.py
 redis_data.json
-*.md
 План действий.md
 PROMPTS/
 run_cleanup.py
@@ -177,6 +176,7 @@ sender.py
 .env.local
 tools/
 docker-compose.yml
+QWEN.md
 # Spyder project settings
 .spyderproject
 .spyproject
