@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     # ✅ FSM STATE TTL (время жизни состояний)
     FSM_STATE_TTL: int = 300  # 5 минут (тест), 86400 (продакшен), 0 (без TTL)
 
+    # ✅ ЛИМИТЫ FREE ПЛАНА (защита от злоупотреблений)
+    FREE_PLAN_SOURCES_LIMIT: int = 25           # Всего источников (TG + YouTube)
+    FREE_PLAN_TELEGRAM_LIMIT: int = 15          # TG каналов
+    FREE_PLAN_YOUTUBE_LIMIT: int = 10           # YouTube каналов
+    FREE_PLAN_GROUPS_LIMIT: int = 5             # Управляемых групп
+    FREE_PLAN_TOPICS_PER_GROUP_LIMIT: int = 20  # Топиков в группе
+
     @property
     def database_url_async(self) -> str:
         if self.DATABASE_URL:

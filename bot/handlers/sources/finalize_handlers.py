@@ -15,6 +15,7 @@ from core.services.destination_service import (
     create_topic_assignment,
     get_or_create_content_source
 )
+from core.services.limits import check_source_limit
 from bot.keyboards import get_main_menu_inline
 from bot.utils.menu_message import update_or_send_menu, delete_menu_message_with_delay, MENU_MESSAGE_ID_KEY
 
@@ -43,6 +44,47 @@ async def finalize_destination_choice(
         display_name = f"{chosen.get('chat_title', 'Группа')} → {chosen.get('thread_name', 'General')}"
 
         logger.info(f"🔄 Добавление {source_type} канала в {display_name}")
+
+        # ========== 0. ПРОВЕРКА ЛИМИТА FREE ПЛАНА ==========
+        limit_result = await check_source_limit(
+            user_id=callback.from_user.id,
+            session=session,
+            source_type=source_type
+        )
+
+        if not limit_result["ok"]:
+            # Показываем ошибку с текущими значениями
+            error_text = (
+                f"{limit_result['error']}\n\n"
+                f"📊 <b>Текущие значения:</b>\n"
+                f"• Telegram: {limit_result['current']['telegram']}\n"
+                f"• YouTube: {limit_result['current']['youtube']}\n"
+                f"• Всего: {limit_result['current']['total']}\n\n"
+                f"📋 <b>Лимиты Free плана:</b>\n"
+                f"• Telegram: {limit_result['limits']['telegram']}\n"
+                f"• YouTube: {limit_result['limits']['youtube']}\n"
+                f"• Всего: {limit_result['limits']['total']}"
+            )
+
+            # ✅ СОХРАНЯЕМ message_id ПЕРЕД ОЧИСТКОЙ СОСТОЯНИЯ
+            data_before_clear = await state.get_data()
+            menu_message_id = data_before_clear.get(MENU_MESSAGE_ID_KEY)
+
+            await update_or_send_menu(
+                bot=callback.bot,
+                chat_id=callback.from_user.id,
+                text=error_text,
+                keyboard=get_main_menu_inline(get_text),
+                state=state
+            )
+
+            # Очищаем состояние, но сохраняем message_id
+            await state.clear()
+            if menu_message_id:
+                await state.update_data({MENU_MESSAGE_ID_KEY: menu_message_id})
+                logger.info(f"💾 message_id={menu_message_id} сохранён после ошибки лимита")
+
+            return
 
         # ========== 1. ПРОВЕРЯЕМ ИСТОЧНИК ==========
         source_stmt = select(ContentSource).where(ContentSource.source_global_id == source_global_id)
