@@ -177,6 +177,7 @@ sender.py
 tools/
 docker-compose.yml
 QWEN.md
+session-analysis-mode.json
 # Spyder project settings
 .spyderproject
 .spyproject

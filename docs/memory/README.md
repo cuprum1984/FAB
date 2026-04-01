@@ -38,6 +38,7 @@ docs/memory/
 │       └── destination.md
 ├── services/                    # Сервисы
 │   ├── rate_limiting.md         # Rate Limiting
+│   ├── limits.md                # Лимиты Free плана
 │   ├── monitoring.md            # Мониторинг
 │   ├── destinations.md          # Назначения
 │   └── cleanup_gdpr.md          # GDPR очистка
@@ -98,13 +99,13 @@ docs/memory/
 |-----------|--------|--------|
 | **keyboards** | 3 | ✅ 3/3 |
 | **handlers** | 4 | ✅ 4/4 |
-| **services** | 4 | ✅ 4/4 |
+| **services** | 5 | ✅ 5/5 |
 | **parsers** | 2 | ✅ 2/2 |
 | **database** | 2 | ✅ 2/2 |
 | **workflows** | 2 | ✅ 2/2 |
-| **ИТОГО** | **17** | **✅ 17/17** |
+| **ИТОГО** | **18** | **✅ 18/18** |
 
-**Последнее обновление:** 28 марта 2026 (v6.3 — удалена `user_cached_media`)
+**Последнее обновление:** 31 марта 2026 (v6.4 — Лимиты Free плана)
 
 ---
 

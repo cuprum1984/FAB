@@ -48,6 +48,7 @@ core/services/
 | Сервис | Файл | Описание | Статус |
 |--------|------|----------|--------|
 | [`rate-limiting.md`](rate-limiting.md) | `rate_limiter.py` | Rate Limiting (Token Bucket) | ✅ Готово |
+| [`limits.md`](limits.md) | `limits.py` | Лимиты Free плана | ✅ Готово (v6.4) |
 | [`monitoring.md`](monitoring.md) | `monitoring/` | Мониторинг источников | ✅ Готово |
 | [`destinations.md`](destinations.md) | `destinations/` | Назначения источников | 🔴 Не начато |
 | [`cleanup-gdpr.md`](cleanup-gdpr.md) | `cleanup/` | GDPR очистка | 🔴 Не начато |
