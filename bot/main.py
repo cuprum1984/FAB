@@ -50,6 +50,8 @@ from bot.handlers import (
     topics_auto,
     settings_handler,
     my_sources_interactive,
+    support,
+    payment_info,  # 👈 НОВЫЙ: /terms и /support
 )
 
 # Настройка логирования
@@ -76,6 +78,9 @@ async def set_bot_commands(bot: Bot):
         BotCommand(command="start", description="🚀 Запустить бота"),
         BotCommand(command="activ", description="[OK] Активировать группу"),
         BotCommand(command="plus", description="➕ Добавить тему"),
+        BotCommand(command="donate", description="💎 Поддержать автора"),
+        BotCommand(command="support", description="📞 Поддержка"),
+        BotCommand(command="terms", description="📄 Условия"),
     ]
 
     # Английские команды
@@ -83,6 +88,9 @@ async def set_bot_commands(bot: Bot):
         BotCommand(command="start", description="🚀 Start bot"),
         BotCommand(command="activ", description="[OK] Activate group"),
         BotCommand(command="plus", description="➕ Add topic"),
+        BotCommand(command="donate", description="💎 Support author"),
+        BotCommand(command="support", description="📞 Support"),
+        BotCommand(command="terms", description="📄 Terms"),
     ]
 
     # Устанавливаем русские команды как default
@@ -101,12 +109,18 @@ async def update_user_commands(bot: Bot, user_id: int, language: str):
             BotCommand(command="start", description="🚀 Start bot"),
             BotCommand(command="activ", description="[OK] Activate group"),
             BotCommand(command="plus", description="➕ Add topic"),
+            BotCommand(command="donate", description="💎 Support author"),
+            BotCommand(command="support", description="📞 Support"),
+            BotCommand(command="terms", description="📄 Terms"),
         ]
     else:
         commands = [
             BotCommand(command="start", description="🚀 Запустить бота"),
             BotCommand(command="activ", description="[OK] Активировать группу"),
             BotCommand(command="plus", description="➕ Добавить тему"),
+            BotCommand(command="donate", description="💎 Поддержать автора"),
+            BotCommand(command="support", description="📞 Поддержка"),
+            BotCommand(command="terms", description="📄 Условия"),
         ]
 
     scope = BotCommandScopeChat(chat_id=user_id)
@@ -322,7 +336,9 @@ async def main():
     dp.include_router(admin.router)
     dp.include_router(topics_auto.forum_router)  # Служебные события тем
     dp.include_router(topics_auto.router)  # Обычные сообщения
+    dp.include_router(support.router)  # Поддержка (донаты) — РАНЬШЕ settings!
     dp.include_router(settings_handler.router)  # Настройки
+    dp.include_router(payment_info.router)  # 👈 /terms и /support
     logger.info("[OK] Роутеры подключены")
 
     dp.startup.register(on_startup)

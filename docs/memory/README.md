@@ -25,12 +25,15 @@ docs/memory/
 ├── keyboards/                   # Клавиатуры
 │   ├── inline_buttons.md        # Все inline-кнопки
 │   ├── pagination.md            # Пагинация
-│   └── menu_system.md           # Управление сообщениями
+│   ├── menu_system.md           # Управление сообщениями
+│   └── support.md               # 💎 Клавиатуры поддержки (v6.5)
 ├── handlers/                    # Хендлеры
 │   ├── common.md                # /start, /help, /refresh
 │   ├── admin.md                 # /activ, /plus, /mytopics
 │   ├── settings.md              # /settings, язык
 │   ├── my_sources.md            # /list, навигация
+│   ├── support.md               # 💎 Донаты через Stars (v6.5)
+│   ├── payment_info.md          # 📞 Команды /terms, /support (v6.5)
 │   └── sources/                 # Добавление источников
 │       ├── add_channel.md
 │       ├── telegram.md
@@ -97,15 +100,15 @@ docs/memory/
 
 | Категория | Файлов | Готово |
 |-----------|--------|--------|
-| **keyboards** | 3 | ✅ 3/3 |
-| **handlers** | 4 | ✅ 4/4 |
+| **keyboards** | 4 | ✅ 4/4 |
+| **handlers** | 6 | ✅ 6/6 |
 | **services** | 5 | ✅ 5/5 |
 | **parsers** | 2 | ✅ 2/2 |
 | **database** | 2 | ✅ 2/2 |
 | **workflows** | 2 | ✅ 2/2 |
-| **ИТОГО** | **18** | **✅ 18/18** |
+| **ИТОГО** | **21** | **✅ 21/21** |
 
-**Последнее обновление:** 31 марта 2026 (v6.4 — Лимиты Free плана)
+**Последнее обновление:** 2 апреля 2026 (v6.5 — Telegram Stars донаты + команды)
 
 ---
 

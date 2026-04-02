@@ -51,6 +51,7 @@ router = Router(name="settings")
     ~(F.data == "settings_back") &
     ~(F.data == "settings_lang") &
     ~(F.data == "settings_delete") &
+    ~(F.data == "settings_support") &  # Исключаем поддержку
     ~F.data.startswith("list_") &  # Исключаем list_group, list_topic, list_back
     ~F.data.startswith("del_source:") &  # Исключаем del_source (из sources.py)
     ~F.data.startswith("del_sub:")  # Исключаем del_sub (из my_sources_interactive.py)

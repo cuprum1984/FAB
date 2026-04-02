@@ -417,7 +417,16 @@ MESSAGES = {
     "settings": {
         "title": "<b>⚙️ Settings</b>\n\n"
                  "Use /settings command to change settings.",
-        
+
+        "support_button": "💎 Support the Author",
+        "support_menu_title": "💎 Support the Author",
+        "support_menu_prompt": "If you find the bot useful, you can thank the developer.\n\n"
+                               "All funds will go towards server costs and project development.\n\n"
+                               "Choose an amount:",
+        "support_thank_you": "🙏 Thank you so much for your support!",
+        "support_stars_sent": "You sent { $count } ⭐",
+        "support_help_text": "Your help is very valuable for MyAggryBot development! 💙",
+
         # Language
         "language_prompt": "<b>🌐 Choose language</b>\n\n"
                            "English\n"

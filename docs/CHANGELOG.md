@@ -1,6 +1,6 @@
 # 📋 Changelog — История версий MyAggryBot
 
-**Последнее обновление:** 31 марта 2026
+**Последнее обновление:** 2 апреля 2026
 
 ---
 
@@ -8,24 +8,25 @@
 
 | Версия | Дата | Статус | Описание | Файл |
 |--------|------|--------|----------|------|
-| **6.4** | 31 мар 2026 | ✅ Актуальная | Лимиты Free плана: сервис проверки, интеграция, тесты (8) | [v6.4.md](versions/v6.4.md) |
-| **6.3** | 28 мар 2026 | ✅ | Оптимизация кэширования: удалена `user_cached_media` | [v6.3.md](versions/v6.3.md) |
-| **6.2** | 28 мар 2026 | ✅ | Оптимизация PostSender: bulk update, кэш тем, изоляция ошибок | [v6.2.md](versions/v6.2.md) |
-| **6.1** | 28 мар 2026 | ✅ | Масштабирование: Semaphore, N+1 оптимизация, защита от простоя | [v6.1.md](versions/v6.1.md) |
-| **6.0** | 17 мар 2026 | ✅ | Refactor Architecture: разделение keyboards/ и messages/ | [v6.0.md](versions/v6.0.md) |
-| **5.7** | 9 мар 2026 | ✅ | Refactor Inline Only + централизация задержек | [v5.7.md](versions/v5.7.md) |
-| **5.6** | 1 мар 2026 | ✅ | Улучшение мониторинга, GDPR очистка, Redis клиент | [v5.6.md](versions/v5.6.md) |
-| **5.5** | 1 мар 2026 | ✅ | Исправление topic_checker, обновление handlers | [v5.5.md](versions/v5.5.md) |
-| **5.4** | 28 фев 2026 | ✅ | Разделение файлов на модули (models → 7, cleanup → 5) | [v5.4.md](versions/v5.4.md) |
-| **5.3** | 28 фев 2026 | ✅ | Rate Limiting (Token Bucket + Exponential Backoff) | [v5.3.md](versions/v5.3.md) |
-| **5.2** | 25 фев 2026 | ✅ | Тесты TopicSourceAssignment (8 тестов) | [v5.2.md](versions/v5.2.md) |
-| **5.1** | 24 фев 2026 | ✅ | Тесты очистки GDPR (10 тестов) | [v5.1.md](versions/v5.1.md) |
-| **5.0** | 23 фев 2026 | ✅ | YouTube Simple Parser + Service | [v5.0.md](versions/v5.0.md) |
-| **4.1** | 20 фев 2026 | ✅ | Удаление RSS-лент | [v4.1.md](versions/v4.1.md) |
-| **4.0** | 18 фев 2026 | ✅ | Destination Service | [v4.0.md](versions/v4.0.md) |
-| **3.0** | 15 фев 2026 | ✅ | Мониторинг сервис | [v3.0.md](versions/v3.0.md) |
-| **2.0** | 10 фев 2026 | ✅ | Telegram парсер | [v2.0.md](versions/v2.0.md) |
-| **1.0** | 05 фев 2026 | ✅ | Базовая версия бота | [v1.0.md](versions/v1.0.md) |
+| **6.5** | 2 апр 2026 | ✅ **Актуальная** | Telegram Stars: система донатов, хендлеры, клавиатуры, локализация | [v6.5.md](09-versions/v6.5.md) |
+| **6.4** | 31 мар 2026 | ✅ | Лимиты Free плана: сервис проверки, интеграция, тесты (8) | [v6.4.md](09-versions/v6.4.md) |
+| **6.3** | 28 мар 2026 | ✅ | Оптимизация кэширования: удалена `user_cached_media` | [v6.3.md](09-versions/v6.3.md) |
+| **6.2** | 28 мар 2026 | ✅ | Оптимизация PostSender: bulk update, кэш тем, изоляция ошибок | [v6.2.md](09-versions/v6.2.md) |
+| **6.1** | 28 мар 2026 | ✅ | Масштабирование: Semaphore, N+1 оптимизация, защита от простоя | [v6.1.md](09-versions/v6.1.md) |
+| **6.0** | 17 мар 2026 | ✅ | Refactor Architecture: разделение keyboards/ и messages/ | [v6.0.md](09-versions/v6.0.md) |
+| **5.7** | 9 мар 2026 | ✅ | Refactor Inline Only + централизация задержек | [v5.7.md](09-versions/v5.7.md) |
+| **5.6** | 1 мар 2026 | ✅ | Улучшение мониторинга, GDPR очистка, Redis клиент | [v5.6.md](09-versions/v5.6.md) |
+| **5.5** | 1 мар 2026 | ✅ | Исправление topic_checker, обновление handlers | [v5.5.md](09-versions/v5.5.md) |
+| **5.4** | 28 фев 2026 | ✅ | Разделение файлов на модули (models → 7, cleanup → 5) | [v5.4.md](09-versions/v5.4.md) |
+| **5.3** | 28 фев 2026 | ✅ | Rate Limiting (Token Bucket + Exponential Backoff) | [v5.3.md](09-versions/v5.3.md) |
+| **5.2** | 25 фев 2026 | ✅ | Тесты TopicSourceAssignment (8 тестов) | [v5.2.md](09-versions/v5.2.md) |
+| **5.1** | 24 фев 2026 | ✅ | Тесты очистки GDPR (10 тестов) | [v5.1.md](09-versions/v5.1.md) |
+| **5.0** | 23 фев 2026 | ✅ | YouTube Simple Parser + Service | [v5.0.md](09-versions/v5.0.md) |
+| **4.1** | 20 фев 2026 | ✅ | Удаление RSS-лент | [v4.1.md](09-versions/v4.1.md) |
+| **4.0** | 18 фев 2026 | ✅ | Destination Service | [v4.0.md](09-versions/v4.0.md) |
+| **3.0** | 15 фев 2026 | ✅ | Мониторинг сервис | [v3.0.md](09-versions/v3.0.md) |
+| **2.0** | 10 фев 2026 | ✅ | Telegram парсер | [v2.0.md](09-versions/v2.0.md) |
+| **1.0** | 05 фев 2026 | ✅ | Базовая версия бота | [v1.0.md](09-versions/v1.0.md) |
 
 ---
 
