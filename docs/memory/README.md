@@ -33,7 +33,7 @@ docs/memory/
 │   ├── settings.md              # /settings, язык
 │   ├── my_sources.md            # /list, навигация
 │   ├── support.md               # 💎 Донаты через Stars (v6.5)
-│   ├── payment_info.md          # 📞 Команды /terms, /support (v6.5)
+│   ├── hybrid-consent.md        # 🔒 Гибридное согласие (v6.6)
 │   └── sources/                 # Добавление источников
 │       ├── add_channel.md
 │       ├── telegram.md
@@ -44,7 +44,8 @@ docs/memory/
 │   ├── limits.md                # Лимиты Free плана
 │   ├── monitoring.md            # Мониторинг
 │   ├── destinations.md          # Назначения
-│   └── cleanup_gdpr.md          # GDPR очистка
+│   ├── cleanup_gdpr.md          # GDPR очистка
+│   └── hybrid-consent.md        # 🔒 Гибридное согласие (v6.6)
 ├── parsers/                     # Парсеры
 │   ├── telegram.md              # Telegram парсер
 │   └── youtube.md               # YouTube парсер
@@ -102,13 +103,13 @@ docs/memory/
 |-----------|--------|--------|
 | **keyboards** | 4 | ✅ 4/4 |
 | **handlers** | 6 | ✅ 6/6 |
-| **services** | 5 | ✅ 5/5 |
+| **services** | 6 | ✅ 6/6 |
 | **parsers** | 2 | ✅ 2/2 |
 | **database** | 2 | ✅ 2/2 |
 | **workflows** | 2 | ✅ 2/2 |
-| **ИТОГО** | **21** | **✅ 21/21** |
+| **ИТОГО** | **22** | **✅ 22/22** |
 
-**Последнее обновление:** 2 апреля 2026 (v6.5 — Telegram Stars донаты + команды)
+**Последнее обновление:** 2 апреля 2026 (v6.6 — Гибридное согласие GDPR + полное удаление данных)
 
 ---
 

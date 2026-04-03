@@ -156,6 +156,7 @@ MESSAGES = {
         # Settings
         "settings_menu": {
             "language": "🌐 Language",
+            "legal_terms": "📋 Terms & Privacy",
             "delete_data": "🗑️ Delete my data",
             "back": "← Back",
             "placeholder": "Settings...",
@@ -444,18 +445,21 @@ MESSAGES = {
         "delete_warning": "<b>⚠️ WARNING!</b>\n\n"
                           "You are about to delete <b>ALL YOUR DATA</b> from the bot:\n\n"
                           "• 🗂️ All personal subscriptions\n"
-                          "• 👥 Leave all groups (if you are an admin)\n"
+                          "• 👥 Groups where you are owner (DELETE groups!)\n"
+                          "• 🗨️ Topics you created\n"
                           "• ⚙️ All settings\n"
-                          "• 💾 All cache\n\n"
-                          "TEST!!!\n"
+                          "• 💾 All cache\n"
+                          "• 📝 Your bot account\n\n"
                           "<b>This action CANNOT be undone!</b>\n\n"
-                          "Groups where you are not an admin will remain active for other users.\n\n"
+                          "Groups where you are not owner will remain active for other users.\n\n"
                           "Are you sure?",
         "delete_success": "✅ <b>All your data has been deleted!</b>\n\n"
                           "• Personal subscriptions deleted\n"
-                          "• Group subscriptions deleted\n"
+                          "• Your groups deleted\n"
+                          "• Your topics deleted\n"
                           "• Settings reset\n"
-                          "• Cache cleared\n\n"
+                          "• Cache cleared\n"
+                          "• Account completely removed from DB\n\n"
                           "You can start over with the /start command",
         "delete_cancelled": "✅ Deletion cancelled",
         "delete_error": "❌ Error deleting data: {error}",
@@ -478,10 +482,25 @@ MESSAGES = {
             "Write to me in DM: @MyAggryBot"
         ),
     },
-    
-    # ========== HTML FORMATTER (html_formatter.py) ==========
-    # Note: This is just utility functions, no user-facing messages
-    
-    # ========== TOPIC UTILS (topic_utils.py) ==========
-    # Note: This is just utility functions, no user-facing messages
+
+    # ========== LEGAL (GDPR consent) ==========
+    "legal": {
+        "welcome_title": "📋 Welcome to MyAggryBot!",
+        "welcome_text": "<b>🤖 MyAggryBot</b> aggregates content from Telegram and YouTube,\n"
+                        "publishes to your groups.\n\n"
+                        "<b>We collect:</b>\n"
+                        "• Telegram ID and username\n"
+                        "• Interface language\n"
+                        "• Activity date\n\n"
+                        "<b>We use it for:</b>\n"
+                        "• Bot operation\n"
+                        "• GDPR cleanup (30 days)\n"
+                        "• Statistics (anonymous)\n\n"
+                        "Click \"✅ I understand\" to accept the terms.",
+        "read_terms": "📄 Full terms",
+        "consent_accept": "✅ I understand, I accept",
+        "back_to_settings": "← Back to settings",
+        "consent_success": "✅ Consent confirmed!",
+        "legal_title": "📄 Terms of Use and Privacy Policy",
+    },
 }

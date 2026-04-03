@@ -33,6 +33,12 @@ def get_settings_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(
+            text=get_text(['keyboards', 'settings_menu', 'legal_terms']),
+            callback_data="settings_legal_terms"
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
             text=get_text(['keyboards', 'settings_menu', 'delete_data']),
             callback_data="settings_delete"
         )

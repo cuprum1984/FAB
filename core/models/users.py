@@ -29,6 +29,9 @@ class TelegramAccount(Base):
     registration_timestamp: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     last_activity: Mapped[Optional[datetime]] = mapped_column(nullable=True)
 
+    # ✅ GDPR: Согласие на обработку данных
+    consent_given_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, default=None)
+
     # Связи
     created_topics: Mapped[List["GroupTopic"]] = relationship(
         back_populates="created_by",

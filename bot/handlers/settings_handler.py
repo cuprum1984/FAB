@@ -52,6 +52,8 @@ router = Router(name="settings")
     ~(F.data == "settings_lang") &
     ~(F.data == "settings_delete") &
     ~(F.data == "settings_support") &  # Исключаем поддержку
+    ~(F.data == "confirm_delete") &  # ⚠️ ИСКЛЮЧАЕМ удаление данных
+    ~(F.data == "cancel_delete") &  # ⚠️ ИСКЛЮЧАЕМ отмену удаления
     ~F.data.startswith("list_") &  # Исключаем list_group, list_topic, list_back
     ~F.data.startswith("del_source:") &  # Исключаем del_source (из sources.py)
     ~F.data.startswith("del_sub:")  # Исключаем del_sub (из my_sources_interactive.py)
@@ -148,51 +150,63 @@ async def process_language_callback(callback: CallbackQuery, state: FSMContext, 
 
 @router.callback_query(Settings.confirm_delete, F.data == "confirm_delete")
 async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: GetTextFunc):
-    """ПОДТВЕРЖДЕНИЕ - удаление всех данных пользователя"""
+    """ПОДТВЕРЖДЕНИЕ - полное удаление всех данных пользователя (GDPR)"""
     user_id = callback.from_user.id
-    
+
+    logger.info(f"🗑️ Начало удаления данных для пользователя {user_id}")
+
     try:
         # 1. Удаляем личные подписки на каналы
         del_user_subs = delete(UserChannelSubscription).where(
             UserChannelSubscription.user_id == user_id
         )
         await session.execute(del_user_subs)
-        
+        logger.info(f"  ✅ Удалены личные подписки")
+
         # 2. Удаляем подписки, добавленные пользователем
         del_subs = delete(SourceSubscription).where(
             SourceSubscription.added_by_telegram_account_id == user_id
         )
         await session.execute(del_subs)
-        
+        logger.info(f"  ✅ Удалены добавленные подписки")
+
         # 3. Удаляем темы, созданные пользователем
         from core.models import GroupTopic
         del_topics = delete(GroupTopic).where(
             GroupTopic.created_by_telegram_account_id == user_id
         )
         await session.execute(del_topics)
-        
-        # 4. Удаляем настройки пользователя
+        logger.info(f"  ✅ Удалены темы")
+
+        # 4. ⚠️ GDPR: Удаляем группы, созданные пользователем (владелец!)
+        from core.models import ManagedGroup
+        del_groups = delete(ManagedGroup).where(
+            ManagedGroup.creator_id == user_id
+        )
+        await session.execute(del_groups)
+        logger.info(f"  ✅ Удалены группы пользователя (как владелец)")
+
+        # 5. Удаляем настройки пользователя
         del_prefs = delete(UserPreferences).where(UserPreferences.user_id == user_id)
         await session.execute(del_prefs)
+        logger.info(f"  ✅ Удалены настройки")
 
-        # 5. Помечаем аккаунт
-        acc_stmt = select(TelegramAccount).where(TelegramAccount.telegram_account_id == user_id)
-        acc_result = await session.execute(acc_stmt)
-        account = acc_result.scalar_one_or_none()
-        
-        if account:
-            account.telegram_username = None
-            account.telegram_first_name = "Deleted"
-            account.telegram_last_name = "User"
-            account.is_bot_blocked = True
-        
+        # 6. ⚠️ GDPR: Полное удаление аккаунта (не просто пометить!)
+        del_account = delete(TelegramAccount).where(
+            TelegramAccount.telegram_account_id == user_id
+        )
+        await session.execute(del_account)
+        logger.info(f"  ✅ Аккаунт полностью удалён из БД (GDPR)")
+
         await session.commit()
+        logger.info(f"  ✅ Транзакция закоммичена")
 
-        # 6. Очищаем Redis кеш
+        # 7. Очищаем Redis кеш
         try:
-            await redis_client.flush()
-        except:
-            pass
+            await redis_client.flushall()
+            logger.info(f"  ✅ Redis очищен")
+        except Exception as e:
+            logger.warning(f"  ⚠️ Не удалось очистить Redis: {e}")
 
         # Отправляем НОВОЕ сообщение об успехе
         success_msg = await callback.bot.send_message(
@@ -202,22 +216,14 @@ async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, sessio
         )
         logger.info(f"📤 Отправлено сообщение об удалении данных: {success_msg.message_id}")
 
-        # Отправляем НОВОЕ главное меню
-        main_menu_msg = await callback.bot.send_message(
-            chat_id=callback.from_user.id,
-            text=get_text(['common', 'menu']),
-            parse_mode="HTML",
-            reply_markup=get_main_menu_inline(get_text)
-        )
-        logger.info(f"📤 Отправлено новое главное меню: {main_menu_msg.message_id}")
-
-        # Сохраняем новый message_id в состоянии
-        await state.update_data({MENU_MESSAGE_ID_KEY: main_menu_msg.message_id})
+        # Сохраняем message_id в состоянии (главное меню НЕ отправляем!)
+        await state.update_data({MENU_MESSAGE_ID_KEY: success_msg.message_id})
         await state.clear()
-        
+        logger.info(f"✅ Удаление данных завершено успешно (GDPR)")
+
     except Exception as e:
         await session.rollback()
-        logger.error(f"❌ Ошибка при удалении данных пользователя {user_id}: {e}")
+        logger.error(f"❌ Ошибка при удалении данных пользователя {user_id}: {e}", exc_info=True)
         # Отправляем сообщение об ошибке
         await callback.bot.send_message(
             chat_id=callback.from_user.id,
@@ -232,6 +238,8 @@ async def confirm_delete_data(callback: CallbackQuery, state: FSMContext, sessio
 async def cancel_delete_data(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: GetTextFunc):
     """Отмена удаления данных"""
     user_id = callback.from_user.id
+
+    logger.info(f"❌ Отмена удаления данных для пользователя {user_id}")
 
     # Получаем текущий язык пользователя из БД
     stmt = select(UserPreferences).where(UserPreferences.user_id == user_id)
@@ -255,6 +263,8 @@ async def cancel_delete_data(callback: CallbackQuery, state: FSMContext, session
         state=state
     )
     await state.set_state(Settings.main)
+    
+    logger.info(f"✅ Возврат в настройки выполнен")
     await callback.answer()
 
 

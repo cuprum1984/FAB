@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models import TelegramAccount, UserPreferences
 from bot.keyboards import get_main_menu_inline
+from bot.keyboards.legal import get_consent_request_kb, get_legal_read_kb
+from bot.states import LegalStates
 from bot.utils.menu_message import (
     update_or_send_menu,
     clear_menu_message,
@@ -58,12 +60,32 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         session.add(prefs)
         await session.commit()
 
-        text = get_text(['common', 'start_new'], first_name=first_name)
-    else:
-        text = get_text(['common', 'start_return'], first_name=first_name)
+        # Новый пользователь - показываем запрос согласия
+        await show_consent_request(
+            bot=message.bot,
+            user_id=user_id,
+            first_name=first_name,
+            state=state,
+            get_text=get_text
+        )
+        return
+
+    # Существующий пользователь - проверяем согласие
+    if user.consent_given_at is None:
+        # Согласие не дано - показываем запрос
+        await show_consent_request(
+            bot=message.bot,
+            user_id=user_id,
+            first_name=first_name,
+            state=state,
+            get_text=get_text
+        )
+        return
+
+    # Согласие дано - показываем главное меню
+    text = get_text(['common', 'start_return'], first_name=first_name)
 
     # Отправляем/обновляем сообщение с INLINE-КЛАВИАТУРОЙ
-    # Используем update_or_send_menu с fallback_message
     await update_or_send_menu(
         bot=message.bot,
         chat_id=user_id,
@@ -71,6 +93,33 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         keyboard=get_main_menu_inline(get_text),
         state=state,
         fallback_message=message
+    )
+
+
+async def show_consent_request(
+    bot,
+    user_id: int,
+    first_name: str,
+    state: FSMContext,
+    get_text: callable
+):
+    """Показать запрос согласия (при первом запуске)"""
+    # Устанавливаем состояние ожидания согласия
+    await state.set_state(LegalStates.waiting_consent)
+
+    # Формируем текст запроса согласия
+    text = (
+        f"📋 <b>Добро пожаловать, {first_name}!</b>\n\n"
+        f"{get_text(['legal', 'welcome_text'])}"
+    )
+
+    # Отправляем сообщение с клавиатурой запроса согласия
+    await update_or_send_menu(
+        bot=bot,
+        chat_id=user_id,
+        text=text,
+        keyboard=get_consent_request_kb(get_text),
+        state=state
     )
 
 
@@ -337,3 +386,113 @@ async def on_menu_refresh(callback: CallbackQuery, state: FSMContext, session: A
         ))
 
     logger.info(f"🔄 Обновление меню: старое {old_message_id} → новое {new_message_id}")
+
+
+# ========== LEGAL HANDLERS (GDPR consent) ==========
+
+@router.callback_query(F.data == "legal_read_terms")
+async def on_legal_read_terms(callback: CallbackQuery, state: FSMContext, get_text: callable):
+    """Обработчик кнопки "📄 Полные условия" - показывает документы"""
+    await callback.answer()
+
+    # Читаем файл terms-privacy.md
+    try:
+        with open("docs/legal/terms-privacy.md", 'r', encoding='utf-8') as f:
+            doc_text = f.read()
+    except FileNotFoundError:
+        doc_text = get_text(['legal', 'legal_title']) + "\n\n⚠️ Документ временно недоступен."
+
+    # Отправляем НОВОЕ сообщение с полным текстом (Markdown)
+    await callback.message.answer(
+        text=doc_text,
+        parse_mode="Markdown",
+        reply_markup=get_legal_read_kb(get_text)
+    )
+
+
+@router.callback_query(F.data == "consent_accept")
+async def on_consent_accept(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    get_text: callable
+):
+    """Обработчик кнопки "✅ Понятно, принимаю" - запись согласия"""
+    user_id = callback.from_user.id
+
+    # Обновляем БД - записываем факт согласия
+    from sqlalchemy import update, func
+    stmt = update(TelegramAccount).where(
+        TelegramAccount.telegram_account_id == user_id
+    ).values(
+        consent_given_at=func.now()
+    )
+    await session.execute(stmt)
+    await session.commit()
+
+    # Очищаем состояние
+    await state.clear()
+
+    # Показываем главное меню
+    first_name = callback.from_user.first_name or "User"
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=user_id,
+        text=get_text(['common', 'start_return'], first_name=first_name),
+        keyboard=get_main_menu_inline(get_text),
+        state=state
+    )
+
+    await callback.answer(get_text(['legal', 'consent_success']))
+
+
+@router.callback_query(F.data == "settings_legal_terms")
+async def on_settings_legal_terms(callback: CallbackQuery, state: FSMContext, get_text: callable):
+    """Обработчик кнопки "📋 Условия и конфиденциальность" в настройках"""
+    await callback.answer()
+
+    # Читаем файл terms-privacy.md
+    try:
+        with open("docs/legal/terms-privacy.md", 'r', encoding='utf-8') as f:
+            doc_text = f.read()
+    except FileNotFoundError:
+        doc_text = get_text(['legal', 'legal_title']) + "\n\n⚠️ Документ временно недоступен."
+
+    # Обновляем существующее сообщение (как кнопка "Помощь")
+    from bot.keyboards.legal import get_legal_terms_kb
+
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=doc_text,
+        keyboard=get_legal_terms_kb(get_text),
+        state=state
+    )
+
+
+@router.callback_query(F.data == "legal_back_to_settings")
+async def on_legal_back_to_settings(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
+    """Обработчик кнопки "Назад в настройки" из legal-документов"""
+    await callback.answer()
+
+    # Сохраняем message_id перед очисткой состояния!
+    data = await state.get_data()
+    menu_message_id = data.get(MENU_MESSAGE_ID_KEY)
+
+    # Очищаем состояние, КРОМЕ message_id
+    await state.clear()
+
+    # Восстанавливаем message_id
+    if menu_message_id:
+        await state.update_data({MENU_MESSAGE_ID_KEY: menu_message_id})
+
+    # Возвращаем в настройки
+    from bot.keyboards.settings import get_settings_menu_inline
+
+    await update_or_send_menu(
+        bot=callback.bot,
+        chat_id=callback.from_user.id,
+        text=get_text(['settings', 'title']),
+        keyboard=get_settings_menu_inline(get_text),
+        state=state
+    )
