@@ -255,7 +255,7 @@ class TelegramMonitor:
         updated_topics: Set = None
     ):
         """
-        Обработать один Telegram пост.
+        Обработать один Telegram пост с copy_message приоритетом.
         updated_topics: множество для bulk update last_seen_at
         """
         from core.services.monitoring.post_sender import PostSender
@@ -294,23 +294,14 @@ class TelegramMonitor:
 
         for assignment in assignments:
             try:
-                if file_id:
-                    await post_sender.send_media_to_assignment(
-                        post=post,
-                        file_id=file_id,
-                        assignment=assignment,
-                        source=source,
-                        session=session,
-                        updated_topics=updated_topics  # ✅ Передаём множество
-                    )
-                else:
-                    await post_sender.send_text_to_assignment(
-                        post=post,
-                        assignment=assignment,
-                        source=source,
-                        session=session,
-                        updated_topics=updated_topics  # ✅ Передаём множество
-                    )
+                # ✅ НОВЫЙ УНИВЕРСАЛЬНЫЙ МЕТОД (copy_message + fallback)
+                await post_sender.send_to_assignment(
+                    post=post,
+                    assignment=assignment,
+                    source=source,
+                    session=session,
+                    updated_topics=updated_topics  # ✅ Передаём множество
+                )
 
                 await asyncio.sleep(0.3)
             except Exception as e:

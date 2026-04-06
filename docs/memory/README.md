@@ -2,7 +2,7 @@
 
 **Папка:** `docs/memory/`  
 **Назначение:** Быстрый контекст по каждому компоненту  
-**Последнее обновление:** 30 марта 2026
+**Последнее обновление:** 6 апреля 2026
 
 ---
 
@@ -40,6 +40,8 @@ docs/memory/
 │       ├── youtube.md
 │       └── destination.md
 ├── services/                    # Сервисы
+│   ├── README.md                # Обзор сервисов
+│   ├── post_sender.md           # 📤 Отправка постов (v6.7)
 │   ├── rate_limiting.md         # Rate Limiting
 │   ├── limits.md                # Лимиты Free плана
 │   ├── monitoring.md            # Мониторинг
@@ -47,7 +49,8 @@ docs/memory/
 │   ├── cleanup_gdpr.md          # GDPR очистка
 │   └── hybrid-consent.md        # 🔒 Гибридное согласие (v6.6)
 ├── parsers/                     # Парсеры
-│   ├── telegram.md              # Telegram парсер
+│   ├── README.md                # Обзор парсеров
+│   ├── telegram.md              # Telegram парсер (HTML + timestamp + альбомы, v6.7)
 │   └── youtube.md               # YouTube парсер
 ├── database/                    # База данных
 │   ├── schema.md                # Схема БД

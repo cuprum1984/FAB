@@ -1,96 +1,90 @@
-# 📺 Telegram Парсер
+# 📡 Telegram Парсер
 
-**Файл:** `core/parser/telegram.py`  
-**Версия:** 2.0 (10 февраля 2026)
+**Файл:** `core/parser/telegram_posts.py`
+**Версия:** 5.0 (24 февраля 2026)
 
 ---
 
 ## 📋 Обзор
 
-Парсер для получения постов из публичных Telegram каналов.
+Парсер для получения постов из публичных Telegram каналов через **веб-версию** `t.me/s/`.
+
+**Не использует:**
+- ❌ Telethon / Pyrogram (User API)
+- ❌ Bot API (требует админства)
+- ❌ Официальный Telegram API
 
 ---
 
-## 🎯 Основные функции
+## 🎯 Основная функция
 
-### `TelegramParser.get_channel_info(username)`
+### `get_new_posts(username, last_post_id, first_only, limit)`
 
-Получение информации о канале.
+Получение новых постов из канала.
 
 **Параметры:**
-- `username` — username канала (без @)
+| Параметр | Тип | Описание |
+|----------|-----|----------|
+| `username` | `str` | Username канала (без `@`) |
+| `last_post_id` | `str \| None` | ID последнего известного поста |
+| `first_only` | `bool` | Если `True` — вернуть только последний пост |
+| `limit` | `int` | Максимум постов (по умолчанию 50) |
 
 **Возвращает:**
 ```python
-dict = {
-    'username': str,
-    'title': str,
-    'description': str,
-    'subscribers': int,
-    'photo': str  # URL фото
-}
-```
-
----
-
-### `TelegramParser.get_posts(username, limit=10)`
-
-Получение последних постов канала.
-
-**Параметры:**
-- `username` — username канала
-- `limit` — количество постов (по умолчанию 10)
-
-**Возвращает:**
-```python
-List[dict] = [
+List[Dict] = [
     {
-        'post_id': int,
-        'text': str,
-        'date': datetime,
-        'views': int,
-        'forwards': int,
-        'media': List[dict]  # Фото, видео, документы
+        'post_id': '12345',        # Строковый ID из URL
+        'text': 'Текст поста',     # Plain text (без форматирования)
+        'media': [                 # Список медиа
+            {'type': 'photo', 'url': 'https://...'},
+            {'type': 'video', 'url': 'https://...'}
+        ],
+        'url': 'https://t.me/username/12345',
+        'timestamp': None          # Всегда None
     }
 ]
 ```
 
 ---
 
-## 📁 Обработка постов
+## 📁 Вспомогательные файлы
 
-**Файл:** `telegram_posts.py`
+### `core/parser/telegram.py`
 
-### `PostParser.parse_post(post)`
+**Функция:** `check_channel_exists(username)`
 
-Разбор поста на компоненты.
+Проверяет существование публичного канала.
 
-**Извлекает:**
-- Текст
-- Фото (URL)
-- Видео (файл ID)
-- Документы (файл ID)
-- Ссылки
-- Пересылки
+**Возвращает:**
+```python
+tuple[bool, str] = (True, "Канал существует")
+```
 
 ---
 
 ## 🔄 Процесс парсинга
 
 ```
-[Запрос к Telegram API]
-  ↓
-[Получение канала]
-  ↓
-[Получение постов]
-  ↓
-[Для каждого поста:]
-  ├─→ Извлечение текста
-  ├─→ Извлечение медиа
-  ├─→ Обработка ссылок
-  └─→ Сохранение в структуру
-  ↓
-[Возврат списка постов]
+1. GET https://t.me/s/{username}
+   ↓
+2. BeautifulSoup(html)
+   ↓
+3. Найти div.tgme_widget_message_wrap
+   ↓
+4. Для каждого поста:
+   ├─→ post_id из a.tgme_widget_message_date → href
+   ├─→ text из div.tgme_widget_message_text → .get_text()
+   ├─→ media из:
+   │   ├─→ a.tgme_widget_message_photo_wrap → style → regex
+   │   └─→ video.tgme_widget_message_video → src
+   └─→ url = f"https://t.me/{username}/{post_id}"
+   ↓
+5. Фильтрация: post_id > last_post_id
+   ↓
+6. Сортировка по post_id (от старых к новым)
+   ↓
+7. Возврат списка
 ```
 
 ---
@@ -99,22 +93,58 @@ List[dict] = [
 
 | Модуль | Назначение |
 |--------|------------|
-| `telethon` | Telegram клиент |
+| `aiohttp` | HTTP-запросы |
+| `bs4` (BeautifulSoup) | Парсинг HTML |
+| `core.settings` | Настройки (USER_AGENT, REQUEST_TIMEOUT) |
+| `core.security.URLSecurity` | Проверка безопасности URL |
 | `core.services.rate_limiter` | Rate Limiting |
-| `core.parser.telegram_posts` | Обработка постов |
 
 ---
 
 ## ⚠️ Особенности
 
-1. **Rate Limiting:** 10 запросов/сек
-2. **Кэширование:** Кэш информации о канале
-3. **Обработка ошибок:** Exponential Backoff
+### 1. Форматирование теряется
+
+```python
+text = text_elem.get_text()  # ❌ Только plain text
+```
+
+Bold, italic, ссылки, code — **всё теряется**.
+
+### 2. Timestamp не извлекается
+
+```python
+'timestamp': None  # Всегда None
+```
+
+Дата есть в HTML (`<time datetime="...">`), но не извлекается.
+
+### 3. Rate Limiting
+
+```python
+# Из core/services/rate_limiter.py
+RATE_LIMIT_TELEGRAM_TOKENS=20      # Ёмкость ведра
+RATE_LIMIT_TELEGRAM_REFILL=10.0    # Токенов/сек
+```
+
+### 4. Дедупликация
+
+```python
+if last_post_id:
+    if int(post_id) <= int(last_post_id):
+        continue  # Пропускаем уже виденные
+```
+
+---
+
+## 🧪 Тесты
+
+Тесты для парсера находятся в `tests/test_telegram_posts.py`.
 
 ---
 
 ## 🔗 Связанные документы
 
 - [`README.md`](README.md) — Обзор парсеров
-- [`../04-services/rate-limiting.md`](../04-services/rate-limiting.md) — Rate Limiting
-- [`../02-handlers/sources/telegram.md`](../02-handlers/sources/telegram.md) — Добавление Telegram
+- [`../04-services/monitoring.md`](../04-services/monitoring.md) — Мониторинг
+- [`../memory/parsers/telegram.md`](../memory/parsers/telegram.md) — Память парсера
