@@ -156,6 +156,7 @@ MESSAGES = {
         # Settings
         "settings_menu": {
             "language": "🌐 Language",
+            "legal_terms": "📋 Terms & Privacy",
             "delete_data": "🗑️ Delete my data",
             "back": "← Back",
             "placeholder": "Settings...",
@@ -369,7 +370,9 @@ MESSAGES = {
                                        "🎯 Destination: {destination}\n\n"
                                        "⏳ Next videos will arrive automatically (every 30 minutes).",
         "destination_error": "❌ Error adding channel: {error}",
-        
+
+        "source_blocked": "⛔ The admin of channel <b>@{username}</b> does not want MyAggryBot to parse their content. This source has been blocked at the author's request.",
+
         # Sources list (/list)
         "list_no_groups": "<b>❌ No active groups</b>\n\n"
                           "<i>First add a group via Admin Panel or /activ command</i>",
@@ -417,7 +420,16 @@ MESSAGES = {
     "settings": {
         "title": "<b>⚙️ Settings</b>\n\n"
                  "Use /settings command to change settings.",
-        
+
+        "support_button": "💎 Support the Author",
+        "support_menu_title": "💎 Support the Author",
+        "support_menu_prompt": "If you find the bot useful, you can thank the developer.\n\n"
+                               "All funds will go towards server costs and project development.\n\n"
+                               "Choose an amount:",
+        "support_thank_you": "🙏 Thank you so much for your support!",
+        "support_stars_sent": "You sent { $count } ⭐",
+        "support_help_text": "Your help is very valuable for MyAggryBot development! 💙",
+
         # Language
         "language_prompt": "<b>🌐 Choose language</b>\n\n"
                            "English\n"
@@ -435,18 +447,21 @@ MESSAGES = {
         "delete_warning": "<b>⚠️ WARNING!</b>\n\n"
                           "You are about to delete <b>ALL YOUR DATA</b> from the bot:\n\n"
                           "• 🗂️ All personal subscriptions\n"
-                          "• 👥 Leave all groups (if you are an admin)\n"
+                          "• 👥 Groups where you are owner (DELETE groups!)\n"
+                          "• 🗨️ Topics you created\n"
                           "• ⚙️ All settings\n"
-                          "• 💾 All cache\n\n"
-                          "TEST!!!\n"
+                          "• 💾 All cache\n"
+                          "• 📝 Your bot account\n\n"
                           "<b>This action CANNOT be undone!</b>\n\n"
-                          "Groups where you are not an admin will remain active for other users.\n\n"
+                          "Groups where you are not owner will remain active for other users.\n\n"
                           "Are you sure?",
         "delete_success": "✅ <b>All your data has been deleted!</b>\n\n"
                           "• Personal subscriptions deleted\n"
-                          "• Group subscriptions deleted\n"
+                          "• Your groups deleted\n"
+                          "• Your topics deleted\n"
                           "• Settings reset\n"
-                          "• Cache cleared\n\n"
+                          "• Cache cleared\n"
+                          "• Account completely removed from DB\n\n"
                           "You can start over with the /start command",
         "delete_cancelled": "✅ Deletion cancelled",
         "delete_error": "❌ Error deleting data: {error}",
@@ -469,10 +484,25 @@ MESSAGES = {
             "Write to me in DM: @MyAggryBot"
         ),
     },
-    
-    # ========== HTML FORMATTER (html_formatter.py) ==========
-    # Note: This is just utility functions, no user-facing messages
-    
-    # ========== TOPIC UTILS (topic_utils.py) ==========
-    # Note: This is just utility functions, no user-facing messages
+
+    # ========== LEGAL (GDPR consent) ==========
+    "legal": {
+        "welcome_title": "📋 Welcome to MyAggryBot!",
+        "welcome_text": "<b>🤖 MyAggryBot</b> aggregates content from Telegram and YouTube,\n"
+                        "publishes to your groups.\n\n"
+                        "<b>We collect:</b>\n"
+                        "• Telegram ID and username\n"
+                        "• Interface language\n"
+                        "• Activity date\n\n"
+                        "<b>We use it for:</b>\n"
+                        "• Bot operation\n"
+                        "• GDPR cleanup (30 days)\n"
+                        "• Statistics (anonymous)\n\n"
+                        "Click \"✅ I understand\" to accept the terms.",
+        "read_terms": "📄 Full terms",
+        "consent_accept": "✅ I understand, I accept",
+        "back_to_settings": "← Back to settings",
+        "consent_success": "✅ Consent confirmed!",
+        "legal_title": "📄 Terms of Use and Privacy Policy",
+    },
 }

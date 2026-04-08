@@ -1,7 +1,7 @@
 # 📊 Схема базы данных
 
-**Версия:** 6.3
-**Последнее обновление:** 28 марта 2026
+**Версия:** 6.6
+**Последнее обновление:** 2 апреля 2026
 
 ---
 
@@ -10,6 +10,7 @@
 Схема PostgreSQL базы данных MyAggryBot.
 
 **Последние изменения:**
+- **v6.6:** Добавлено поле `consent_given_at` в `telegram_accounts` (GDPR согласие)
 - **v6.3:** Удалена таблица `user_cached_media` (оптимизация кэширования)
 
 ---
@@ -23,21 +24,37 @@
 ```sql
 CREATE TABLE telegram_accounts (
     telegram_account_id BIGINT PRIMARY KEY,
-    telegram_username VARCHAR(255),
-    telegram_first_name VARCHAR(255),
-    telegram_last_name VARCHAR(255),
-    language_code VARCHAR(10) DEFAULT 'en',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    telegram_username VARCHAR(64),
+    telegram_first_name VARCHAR(128) NOT NULL,
+    telegram_last_name VARCHAR(128),
+    is_bot_blocked BOOLEAN DEFAULT FALSE,
+    language_code VARCHAR(10),
+    registration_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_activity TIMESTAMP,
+    consent_given_at TIMESTAMP,                    -- ← НОВОЕ (v6.6)
+    
+    CONSTRAINT chk_username_length CHECK (
+        telegram_username IS NULL OR 
+        LENGTH(telegram_username) BETWEEN 5 AND 32
+    )
 );
 ```
 
 **Поля:**
 - `telegram_account_id` — ID пользователя Telegram
-- `telegram_username` — Username
+- `telegram_username` — Username (@username)
 - `telegram_first_name` — Имя
 - `telegram_last_name` — Фамилия
-- `language_code` — Код языка
+- `is_bot_blocked` — Заблокировал ли пользователь бота
+- `language_code` — Код языка (ru, en, uk, be)
+- `registration_timestamp` — Дата регистрации
+- `last_activity` — Последняя активность
+- `consent_given_at` — ✅ **НОВОЕ (v6.6)**: Дата дачи согласия на обработку данных (GDPR)
+
+**Индексы:**
+- `idx_account_last_activity` — для GDPR очистки
+- `idx_account_username` — для поиска по username
+- `idx_account_language` — для статистики по языкам
 
 ---
 

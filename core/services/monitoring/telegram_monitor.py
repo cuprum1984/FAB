@@ -1,18 +1,19 @@
 # core/services/monitoring/telegram_monitor.py
 """
 Проверка Telegram каналов и отправка постов.
-Версия: 6.2 — Bulk update last_seen_at
+Версия: 6.9 — Упрощённая отправка (без кэша file_id)
 """
 import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import async_session
 from core.settings import settings
-from core.models import ContentSource, CachedMedia
+from core.models import ContentSource
 from core.parser.telegram_posts import get_new_posts as get_telegram_posts
 from core.redis_client import get_cached_last_post, set_cached_last_post
 from core.services.destination_service import (
@@ -157,25 +158,10 @@ class TelegramMonitor:
                         f"отправлено только {len(new_posts)} последних"
                     )
 
-            # ✅ ОПТИМИЗАЦИЯ: пакетная загрузка file_id для всех постов
-            post_ids = [p['post_id'] for p in new_posts if p.get('post_id')]
-            cached_media_map = {}
-
-            if post_ids:
-                logger.debug(f"📦 Пакетная загрузка file_id для {len(post_ids)} постов...")
-                stmt = select(CachedMedia).where(
-                    CachedMedia.source_global_id == source.source_global_id,
-                    CachedMedia.post_id.in_(post_ids)
-                )
-                result = await session.execute(stmt)
-                cached_media_list = result.scalars().all()
-                cached_media_map = {cm.post_id: cm.file_id for cm in cached_media_list}
-                logger.info(f"✅ Загружено {len(cached_media_map)} file_id из кеша")
-
             # Сохраняем текущий last_post_id для проверок во время цикла
             current_last_id = source.last_successful_post_id
             last_successful_id = None
-            
+
             # ✅ BULK UPDATE: собираем все обновлённые темы
             updated_topics: Set = set()
 
@@ -184,17 +170,13 @@ class TelegramMonitor:
                 logger.info(f"   📝 Обработка поста {i}/{len(new_posts)}: ID={post_id}")
 
                 try:
-                    # ✅ Передаём file_id из кеша
-                    file_id = cached_media_map.get(post_id)
-
                     await self._process_telegram_post(
                         post=post,
                         source=source,
                         assignments=assignments,
                         session=session,
                         current_last_id=current_last_id,
-                        cached_file_id=file_id,
-                        updated_topics=updated_topics  # ✅ Передаём множество
+                        updated_topics=updated_topics
                     )
 
                     if post_id:
@@ -202,7 +184,6 @@ class TelegramMonitor:
 
                 except Exception as e:
                     logger.error(f"❌ Ошибка обработки поста {post_id}: {e}")
-                    # Не делаем rollback в цикле — продолжаем обработку
                     await asyncio.sleep(2.0)
                     continue
 
@@ -251,7 +232,6 @@ class TelegramMonitor:
         assignments: List,
         session: AsyncSession,
         current_last_id: Optional[int] = None,
-        cached_file_id: Optional[str] = None,
         updated_topics: Set = None
     ):
         """
@@ -282,40 +262,19 @@ class TelegramMonitor:
 
         logger.info(f"📝 Новый пост {post_id_int} из {source.telegram_username}")
 
-        # ✅ Используем file_id из кеша (передан извне)
-        file_id = cached_file_id
-
-        if file_id:
-            logger.info(f"✅ Используем file_id из кеша: {file_id}")
-        else:
-            logger.debug(f"❌ file_id НЕ НАЙДЕН в кеше")
-
         post_sender = PostSender(self.bot)
 
         for assignment in assignments:
             try:
-                if file_id:
-                    await post_sender.send_media_to_assignment(
-                        post=post,
-                        file_id=file_id,
-                        assignment=assignment,
-                        source=source,
-                        session=session,
-                        updated_topics=updated_topics  # ✅ Передаём множество
-                    )
-                else:
-                    await post_sender.send_text_to_assignment(
-                        post=post,
-                        assignment=assignment,
-                        source=source,
-                        session=session,
-                        updated_topics=updated_topics  # ✅ Передаём множество
-                    )
+                await post_sender.send_to_assignment(
+                    post=post,
+                    assignment=assignment,
+                    source=source,
+                    session=session,
+                    updated_topics=updated_topics
+                )
 
                 await asyncio.sleep(0.3)
             except Exception as e:
                 logger.error(f"❌ Ошибка отправки поста {post_id_int}: {e}", exc_info=False)
 
-
-# Импорты в конце для избежания циклических зависимостей
-from sqlalchemy import select

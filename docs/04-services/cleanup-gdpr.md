@@ -1,13 +1,15 @@
 # 🧹 GDPR Очистка (Cleanup Service)
 
-**Папка:** `core/services/cleanup/`  
-**Версия:** 5.6 (1 марта 2026)
+**Папка:** `core/services/cleanup/`
+**Версия:** 6.6 (2 апреля 2026)
 
 ---
 
 ## 📋 Обзор
 
 Автоматическая очистка неактивных пользователей и связанных данных (GDPR compliance).
+
+**v6.6:** Добавлено полное удаление данных пользователя по запросу (кнопка "Удалить мои данные").
 
 ---
 
@@ -90,6 +92,44 @@ List[int] = [user_id1, user_id2, ...]
 | `user_cached_media` | `user_id IN (inactive_users)` |
 | `source_subscriptions` | `added_by_telegram_account_id IN (inactive_users)` |
 | `telegram_accounts` | `telegram_account_id IN (inactive_users)` |
+
+---
+
+## 🔒 Удаление данных пользователем (v6.6)
+
+**Хендлер:** `bot/handlers/settings_handler.py::confirm_delete_data()`
+
+**Триггер:** Кнопка "🗑️ Удалить мои данные" → "✅ ДА, удалить всё"
+
+**Что удаляется:**
+```sql
+-- 1. Личные подписки
+DELETE FROM user_channel_subscriptions WHERE user_id = ?;
+
+-- 2. Добавленные подписки
+DELETE FROM source_subscriptions WHERE added_by_telegram_account_id = ?;
+
+-- 3. Созданные темы
+DELETE FROM group_topics WHERE created_by_telegram_account_id = ?;
+
+-- 4. Группы владельца ← НОВОЕ (v6.6)!
+DELETE FROM managed_groups WHERE creator_id = ?;
+
+-- 5. Настройки
+DELETE FROM user_preferences WHERE user_id = ?;
+
+-- 6. Аккаунт ← НОВОЕ (v6.6)!
+DELETE FROM telegram_accounts WHERE telegram_account_id = ?;
+
+-- 7. Redis кеш
+FLUSHALL;
+```
+
+**Важно:**
+- Аккаунт **полностью удаляется**, а не помечается
+- Группы владельца удаляются (пользователь — админ!)
+- Главное меню **не отправляется** после удаления
+- Последнее сообщение — об успешном удалении
 
 ---
 

@@ -1,59 +1,71 @@
-# 📹 YouTube Парсер
+# 📺 YouTube Парсер
 
-**Файл:** `core/parser/youtube_simple.py`  
-**Версия:** 5.0 (23 февраля 2026)
+**Файл:** `core/parser/youtube_simple.py`
+**Версия:** 2.0 (28 февраля 2026)
 
 ---
 
 ## 📋 Обзор
 
-Парсер для получения информации о YouTube каналах и новых видео.
+Простой парсер YouTube каналов через **HTML-парсинг** (без YouTube Data API).
+
+**Принцип:** "Как видит человек" — заходим на `/videos`, берём первое видео.
+
+**Не использует:**
+- ❌ YouTube Data API v3
+- ❌ OAuth
+- ❌ Официальный API
 
 ---
 
-## 🎯 Основные функции
+## 🎯 Класс `YouTubeSimpleParser`
 
-### `YouTubeParser.get_channel_info(url)`
+### Основные методы
 
-Получение информации о канале.
+#### `get_latest_video_id(username)`
+
+**Основной метод.** Берёт ПЕРВОЕ видео на вкладке `/videos`.
 
 **Параметры:**
-- `url` — URL канала или @username
+- `username` — username канала (без `@`)
 
 **Возвращает:**
 ```python
-dict = {
-    'channel_id': str,
-    'title': str,
-    'description': str,
-    'subscribers': str,  # Текст (например, "1.2M")
-    'video_count': int,
-    'thumbnail': str
-}
+str = 'abc123xyz'  # 11-символьный video_id
+# или None если не удалось найти
 ```
 
 ---
 
-### `YouTubeParser.get_latest_videos(channel_id, limit=5)`
+#### `get_channel_id(username)`
 
-Получение последних видео канала.
+Получить `channel_id` канала (нужно для БД).
 
 **Параметры:**
-- `channel_id` — ID канала
-- `limit` — количество видео (по умолчанию 5)
+- `username` — username канала
 
 **Возвращает:**
 ```python
-List[dict] = [
-    {
-        'video_id': str,
-        'title': str,
-        'url': str,
-        'published': datetime,
-        'thumbnail': str,
-        'duration': str
-    }
-]
+str = 'UC...'  # channel_id
+# или None если не удалось найти
+```
+
+---
+
+#### `get_channel_data(username)`
+
+Полные данные канала (для добавления источника).
+
+**Параметры:**
+- `username` — username канала
+
+**Возвращает:**
+```python
+{
+    'channel_id': 'UC...',
+    'channel_title': 'Название канала',  # Из og:title
+    'video_id': 'abc123xyz',
+}
 ```
 
 ---
@@ -61,18 +73,13 @@ List[dict] = [
 ## 🔄 Процесс парсинга
 
 ```
-[Запрос к YouTube]
-  ↓
-[Получение канала]
-  ↓
-[Получение видео]
-  ↓
-[Для каждого видео:]
-  ├─→ Извлечение metadata
-  ├─→ Проверка даты
-  └─→ Сохранение в структуру
-  ↓
-[Возврат списка видео]
+1. GET https://www.youtube.com/@{username}/videos
+   ↓
+2. Регулярные выражения:
+   ├─→ Паттерн 1: data-id="([a-zA-Z0-9_-]{11})"
+   └─→ Паттерн 2: watch\?v=([a-zA-Z0-9_-]{11})
+   ↓
+3. Возврат video_id
 ```
 
 ---
@@ -81,36 +88,63 @@ List[dict] = [
 
 | Модуль | Назначение |
 |--------|------------|
-| `requests` / `aiohttp` | HTTP запросы |
-| `bs4` | Парсинг HTML |
+| `aiohttp` | HTTP-запросы |
+| `re` | Регулярные выражения |
+| `random` | Ротация User-Agent |
 | `core.services.rate_limiter` | Rate Limiting |
 
 ---
 
 ## ⚠️ Особенности
 
-1. **Rate Limiting:** 1 запрос/сек (строгое ограничение)
-2. **Без API:** Использует парсинг HTML (не требует API key)
-3. **Exponential Backoff:** При ошибках
+### 1. Только video_id
+
+Парсер возвращает **только `video_id`**. Без:
+- ❌ `title`
+- ❌ `duration`
+- ❌ `thumbnail`
+- ❌ `published`
+
+### 2. Rate Limiting (строгий!)
+
+```python
+RATE_LIMIT_YOUTUBE_TOKENS=5        # Ёмкость ведра
+RATE_LIMIT_YOUTUBE_REFILL=1.0      # Токенов/сек
+```
+
+**Дополнительно:**
+- Случайная задержка 1-2 сек между запросами
+- Ротация User-Agent (4 браузера)
+
+### 3. Exponential Backoff
+
+При повторяющихся ошибках парсер увеличивает задержку между запросами.
+
+### 4. Глобальный экземпляр
+
+```python
+from core.parser.youtube_simple import get_parser
+
+parser = get_parser()  # Глобальный синглтон
+video_id = await parser.get_latest_video_id('username')
+```
 
 ---
 
 ## 🧪 Тесты
 
-**Файл:** `tests/test_youtube_parser.py`
+Тесты находятся в `tests/test_youtube_*.py`.
 
 | Тест | Описание | Статус |
 |------|----------|--------|
-| `test_get_channel_info` | Информация о канале | ✅ |
-| `test_get_latest_videos` | Последние видео | ✅ |
-
-**Всего:** Тесты в составе test_youtube_*.py
+| `test_get_channel_id` | Получение channel_id | ✅ |
+| `test_get_latest_video_id` | Получение последнего видео | ✅ |
+| `test_get_channel_data` | Полные данные канала | ✅ |
 
 ---
 
 ## 🔗 Связанные документы
 
 - [`README.md`](README.md) — Обзор парсеров
-- [`../04-services/rate-limiting.md`](../04-services/rate-limiting.md) — Rate Limiting
 - [`../04-services/youtube.md`](../04-services/youtube.md) — YouTube Service
-- [`../02-handlers/sources/youtube.md`](../02-handlers/sources/youtube.md) — Добавление YouTube
+- [`../memory/parsers/youtube.md`](../memory/parsers/youtube.md) — Память парсера

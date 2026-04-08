@@ -10,7 +10,7 @@ GetTextFunc = Callable[[List[str], Dict[str, Any]], str]
 def get_settings_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
     """
     Настройки - InlineKeyboardMarkup.
-    
+
     Args:
         get_text: Функция локализации
 
@@ -23,6 +23,18 @@ def get_settings_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
         InlineKeyboardButton(
             text=get_text(['keyboards', 'settings_menu', 'language']),
             callback_data="settings_lang"
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="💎 Поддержать автора",
+            callback_data="settings_support"
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=get_text(['keyboards', 'settings_menu', 'legal_terms']),
+            callback_data="settings_legal_terms"
         )
     )
     builder.row(

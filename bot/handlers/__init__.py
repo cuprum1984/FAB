@@ -5,3 +5,4 @@ from . import admin
 from . import topics_auto  # новый роутер
 from . import my_overview
 from . import settings_handler
+from . import support  # поддержка (донаты)

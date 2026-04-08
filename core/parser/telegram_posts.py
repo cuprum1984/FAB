@@ -16,6 +16,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 from core.settings import settings
 from core.security import URLSecurity
+from core.utils.html_sanitizer import sanitize_telegram_html
 
 
 logger = logging.getLogger(__name__)
@@ -101,29 +102,88 @@ async def get_new_posts(
                         logger.error(f"Не удалось конвертировать ID: post_id={post_id}, last_post_id={last_post_id}")
                         continue
 
-                # Извлекаем текст
-                text_elem = post_element.find('div', class_='tgme_widget_message_text')
-                text = text_elem.get_text() if text_elem else ''
+                # Извлекаем HTML текста (с сохранением форматирования)
+                # ⚠️ ВАЖНО: исключаем блок цитаты (reply) — там тоже есть .tgme_widget_message_text
+                # Клонируем элемент, удаляем reply, ищем основной текст
+                post_clone = BeautifulSoup(str(post_element), 'html.parser')
+                for reply in post_clone.find_all(class_='tgme_widget_message_reply'):
+                    reply.decompose()
+
+                text_elem = post_clone.find('div', class_='tgme_widget_message_text')
+                if text_elem:
+                    raw_html = str(text_elem.decode_contents())
+                    text = sanitize_telegram_html(raw_html, max_length=4000)
+                else:
+                    text = ''
+
+                # Извлекаем timestamp из <time> элемента
+                timestamp = None
+                time_elem = post_element.find('time')
+                if time_elem and time_elem.get('datetime'):
+                    try:
+                        timestamp = int(datetime.fromisoformat(time_elem['datetime']).timestamp())
+                    except Exception:
+                        timestamp = None
 
                 # Извлекаем медиа
                 media_items = []
 
-                # Фото
-                photo_elem = post_element.find('a', class_='tgme_widget_message_photo_wrap')
-                if photo_elem and photo_elem.get('style'):
-                    match = re.search(r"background-image:url\('(.+?)'\)", photo_elem['style'])
-                    if match:
-                        media_items.append({
-                            'type': 'photo',
-                            'url': match.group(1)
-                        })
+                # Фото (альбомы — ищем ВСЕ фото)
+                for photo_elem in post_element.find_all('a', class_='tgme_widget_message_photo_wrap'):
+                    if photo_elem and photo_elem.get('style'):
+                        match = re.search(r"background-image:url\('(.+?)'\)", photo_elem['style'])
+                        if match:
+                            media_items.append({
+                                'type': 'photo',
+                                'url': match.group(1)
+                            })
 
-                # Видео
+                # Видео (обычное)
                 video_elem = post_element.find('video', class_='tgme_widget_message_video')
                 if video_elem and video_elem.get('src'):
                     media_items.append({
                         'type': 'video',
                         'url': video_elem['src']
+                    })
+
+                # Видео-кружок (видеосообщение)
+                round_video_elem = post_element.find('video', class_='tgme_widget_message_round_video')
+                if round_video_elem and round_video_elem.get('src'):
+                    media_items.append({
+                        'type': 'video_note',
+                        'url': round_video_elem['src']
+                    })
+
+                # GIF (анимация)
+                gif_elem = post_element.find('a', class_='tgme_widget_message_gif')
+                if gif_elem and gif_elem.get('data-video-src'):
+                    media_items.append({
+                        'type': 'animation',
+                        'url': gif_elem['data-video-src']
+                    })
+
+                # Аудио / Музыка
+                audio_elem = post_element.find('audio', class_='tgme_widget_message_voice')
+                if audio_elem and audio_elem.get('src'):
+                    media_items.append({
+                        'type': 'audio',
+                        'url': audio_elem['src']
+                    })
+
+                # Документ / Файл
+                doc_wrap = post_element.find('a', class_='tgme_widget_message_document_wrap')
+                if doc_wrap and doc_wrap.get('href'):
+                    media_items.append({
+                        'type': 'document',
+                        'url': doc_wrap['href']
+                    })
+
+                # Ссылка-превью (link preview)
+                link_image = post_element.find('img', class_='tgme_widget_message_link_image')
+                if link_image and link_image.get('src'):
+                    media_items.append({
+                        'type': 'photo',  # Превью ссылки как фото
+                        'url': link_image['src']
                     })
 
                 # Ссылка на оригинал
@@ -134,7 +194,7 @@ async def get_new_posts(
                     'text': text,
                     'media': media_items,
                     'url': original_url,
-                    'timestamp': None
+                    'timestamp': timestamp  # ✅ Теперь не None
                 }
 
                 posts.append(post)

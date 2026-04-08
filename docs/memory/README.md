@@ -1,8 +1,8 @@
 # 🧠 Память проекта MyAggryBot
 
-**Папка:** `docs/memory/`  
-**Назначение:** Быстрый контекст по каждому компоненту  
-**Последнее обновление:** 30 марта 2026
+**Папка:** `docs/memory/`
+**Назначение:** Быстрый контекст по каждому компоненту
+**Последнее обновление:** 8 апреля 2026
 
 ---
 
@@ -25,25 +25,33 @@ docs/memory/
 ├── keyboards/                   # Клавиатуры
 │   ├── inline_buttons.md        # Все inline-кнопки
 │   ├── pagination.md            # Пагинация
-│   └── menu_system.md           # Управление сообщениями
+│   ├── menu_system.md           # Управление сообщениями
+│   └── support.md               # 💎 Клавиатуры поддержки (v6.5)
 ├── handlers/                    # Хендлеры
 │   ├── common.md                # /start, /help, /refresh
 │   ├── admin.md                 # /activ, /plus, /mytopics
 │   ├── settings.md              # /settings, язык
 │   ├── my_sources.md            # /list, навигация
+│   ├── support.md               # 💎 Донаты через Stars (v6.5)
+│   ├── hybrid-consent.md        # 🔒 Гибридное согласие (v6.6)
 │   └── sources/                 # Добавление источников
 │       ├── add_channel.md
 │       ├── telegram.md
 │       ├── youtube.md
 │       └── destination.md
 ├── services/                    # Сервисы
+│   ├── README.md                # Обзор сервисов
+│   ├── post_sender.md           # 📤 Отправка постов (v6.7)
 │   ├── rate_limiting.md         # Rate Limiting
 │   ├── limits.md                # Лимиты Free плана
-│   ├── monitoring.md            # Мониторинг
+│   ├── monitoring.md            # Мониторинг (v6.9.1 — блокировка)
+│   ├── block_source.md          # ⛔ Блокировка + верификация (v6.9.1)
 │   ├── destinations.md          # Назначения
-│   └── cleanup_gdpr.md          # GDPR очистка
+│   ├── cleanup_gdpr.md          # GDPR очистка
+│   └── hybrid-consent.md        # 🔒 Гибридное согласие (v6.6)
 ├── parsers/                     # Парсеры
-│   ├── telegram.md              # Telegram парсер
+│   ├── README.md                # Обзор парсеров
+│   ├── telegram.md              # Telegram парсер (HTML + timestamp + альбомы, v6.7)
 │   └── youtube.md               # YouTube парсер
 ├── database/                    # База данных
 │   ├── schema.md                # Схема БД
@@ -97,15 +105,15 @@ docs/memory/
 
 | Категория | Файлов | Готово |
 |-----------|--------|--------|
-| **keyboards** | 3 | ✅ 3/3 |
-| **handlers** | 4 | ✅ 4/4 |
-| **services** | 5 | ✅ 5/5 |
+| **keyboards** | 4 | ✅ 4/4 |
+| **handlers** | 6 | ✅ 6/6 |
+| **services** | 7 | ✅ 7/7 |
 | **parsers** | 2 | ✅ 2/2 |
 | **database** | 2 | ✅ 2/2 |
 | **workflows** | 2 | ✅ 2/2 |
-| **ИТОГО** | **18** | **✅ 18/18** |
+| **ИТОГО** | **23** | **✅ 23/23** |
 
-**Последнее обновление:** 31 марта 2026 (v6.4 — Лимиты Free плана)
+**Последнее обновление:** 8 апреля 2026 (v6.9.1 — Блокировка источников)
 
 ---
 

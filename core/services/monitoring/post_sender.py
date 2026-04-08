@@ -1,39 +1,35 @@
 # core/services/monitoring/post_sender.py
 """
-Отправка постов в темы (медиа/текст).
-Версия: 6.2 — Оптимизация масштабирования
-Изменения:
-- Убран session.flush() после каждой отправки
-- Изоляция ошибок — raise заменён на логирование
-- Отдельные сессии для cleanup операций
+Отправка постов в темы.
+Версия: 6.9 — HTML форматирование + умное превью + кнопка на оригинал + проверка медиа
 """
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set
+from typing import Dict, Optional, Set
 
+import aiohttp
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.models import ContentSource, ManagedGroup, GroupTopic
 from core.database import async_session
-from sqlalchemy import select
+from core.models import ContentSource, ManagedGroup, GroupTopic
+from core.utils.html_sanitizer import html_to_plain_text
 
 logger = logging.getLogger(__name__)
 
 
 class PostSender:
-    """
-    Отправка постов в темы.
-    Версия 6.2: Без session.flush(), с изоляцией ошибок.
-    """
+    """Отправка постов в темы. HTML + превью + кнопка."""
 
     def __init__(self, bot):
         self.bot = bot
-        
-        # ✅ КЭШ СТАТУСОВ ТЕМ (LRU-like, 5 минут)
+
+        # Кэш неактивных тем/групп (5 минут)
         self._topic_cache: Dict[str, datetime] = {}
         self._group_cache: Dict[int, datetime] = {}
-        self._cache_ttl = 300  # 5 минут
+        self._cache_ttl = 300
 
     def _is_topic_cached_inactive(self, topic_identifier: str) -> bool:
         """Проверить, есть ли тема в кэше неактивных."""
@@ -51,93 +47,11 @@ class PostSender:
                 return True
         return False
 
-    async def send_media_to_assignment(
-        self,
-        post: Dict,
-        file_id: str,
-        assignment,
-        source: ContentSource,
-        session: AsyncSession,
-        updated_topics: Set
-    ):
-        """
-        Отправить медиа с file_id.
-        updated_topics: множество topic_id для последующего bulk update
-        """
-        try:
-            topic = assignment.topic
+    # ======================================================================
+    # ОТПРАВКА ПОСТА
+    # ======================================================================
 
-            if not topic or topic.is_closed:
-                logger.warning(f"⚠️ Тема закрыта или не существует: {assignment.topic_identifier}")
-                return False
-
-            # ✅ ПРОВЕРКА КЭША
-            topic_key = f"{topic.telegram_chat_id}:{topic.telegram_thread_id}"
-            if self._is_topic_cached_inactive(topic_key):
-                logger.debug(f"⏭️ Тема {topic_key} в кэше неактивных, пропускаем")
-                return False
-
-            text = post.get('text', '').strip()
-
-            if source.channel_title:
-                source_name = f"{source.channel_title} | @{source.telegram_username}"
-            else:
-                source_name = f"@{source.telegram_username}"
-
-            caption = f"<b>{source_name}</b>\n\n{text}"
-            if len(caption) > 1024:
-                caption = caption[:1021] + "..."
-
-            logger.info(f"📤 Отправляю медиа в тему '{topic.topic_name}' (chat_id={topic.telegram_chat_id}, thread_id={topic.telegram_thread_id})")
-
-            success = False
-
-            # Попытка отправить как фото
-            try:
-                await self.bot.send_photo(
-                    chat_id=topic.telegram_chat_id,
-                    photo=file_id,
-                    caption=caption,
-                    parse_mode="HTML",
-                    message_thread_id=topic.telegram_thread_id
-                )
-                logger.info(f"✅ Медиа отправлено в тему '{topic.topic_name}'")
-                success = True
-
-            except Exception as photo_error:
-                logger.warning(f"⚠️ Не удалось отправить как фото: {photo_error}")
-
-                # Попытка отправить как документ
-                try:
-                    await self.bot.send_document(
-                        chat_id=topic.telegram_chat_id,
-                        document=file_id,
-                        caption=caption,
-                        parse_mode="HTML",
-                        message_thread_id=topic.telegram_thread_id
-                    )
-                    logger.info(f"✅ Документ отправлен в тему '{topic.topic_name}'")
-                    success = True
-
-                except Exception as doc_error:
-                    logger.error(f"❌ Не удалось отправить медиа: {doc_error}")
-                    # Пробуем отправить текст
-                    success = await self._send_text_only(post, assignment, source, session, updated_topics)
-
-            # ✅ ОБНОВЛЯЕМ last_seen_at (только标记, без flush!)
-            if success:
-                topic.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                updated_topics.add(topic)  # Добавляем в множество для bulk update
-                return True
-
-            return False
-
-        except Exception as e:
-            # ✅ ИЗОЛЯЦИЯ ОШИБОК — не прерываем поток, логируем
-            logger.error(f"❌ Ошибка отправки медиа: {e}", exc_info=False)  # exc_info=False для краткости
-            return False
-
-    async def _send_text_only(
+    async def send_to_assignment(
         self,
         post: Dict,
         assignment,
@@ -145,18 +59,32 @@ class PostSender:
         session: AsyncSession,
         updated_topics: Set
     ) -> bool:
-        """Отправить только текст (вспомогательный метод)"""
+        """Отправить пост с умным превью и кнопкой на оригинал."""
         try:
             topic = assignment.topic
+
             if not topic or topic.is_closed:
+                logger.warning(f"⚠️ Тема закрыта: {assignment.topic_identifier}")
                 return False
 
+            # 📎 Проверка готовности медиа (количество + доступность)
+            await self._check_media_ready(post)
+
+            # Форматируем HTML текст
             message_text = self._format_telegram_post_message(post, source)
 
+            # Кнопка на оригинал
+            keyboard = self._get_original_post_keyboard(post, source)
+
+            # Отправляем с превью
+            logger.info(f"📤 Отправляю пост в тему '{topic.topic_name}'")
             success = await self._send_message_with_retry(
                 chat_id=topic.telegram_chat_id,
                 text=message_text,
-                thread_id=topic.telegram_thread_id
+                thread_id=topic.telegram_thread_id,
+                keyboard=keyboard,
+                post=post,
+                source=source
             )
 
             if success:
@@ -167,107 +95,120 @@ class PostSender:
             return False
 
         except Exception as e:
-            logger.error(f"❌ Ошибка отправки текста: {e}", exc_info=False)
+            logger.error(f"❌ Ошибка отправки поста: {e}", exc_info=False)
             return False
 
-    async def send_text_to_assignment(
-        self,
-        post: Dict,
-        assignment,
-        source: ContentSource,
-        session: AsyncSession,
-        updated_topics: Set
-    ):
+    async def _check_media_ready(self, post: Dict):
         """
-        Отправить только текст.
-        updated_topics: множество topic_id для последующего bulk update
+        Проверяет готовность медиа перед отправкой.
+
+        Логика:
+        1. Логирует сколько медиа и какие типы
+        2. Проверяет HEAD запросом первое медиа
+        3. Если не доступно → ждёт 60 сек, проверяет снова (макс 2 попытки)
         """
+        media_items = post.get('media', [])
+        if not media_items:
+            return
+
+        # Логируем количество и типы
+        types = [m.get('type', 'unknown') for m in media_items]
+        type_counts = {}
+        for t in types:
+            type_counts[t] = type_counts.get(t, 0) + 1
+
+        type_summary = ', '.join(f'{count}x{t}' for t, count in type_counts.items())
+        logger.info(f"📎 Медиа в посте: {len(media_items)} шт ({type_summary})")
+
+        # Проверяем доступность первого медиа
+        first_media = media_items[0]
+        media_url = first_media.get('url', '')
+        media_type = first_media.get('type', 'photo')
+
+        if not media_url:
+            logger.warning(f"⚠️ Медиа {media_type} без URL, пропускаем проверку")
+            return
+
+        max_attempts = 2
+        for attempt in range(max_attempts):
+            available = await self._check_media_available(media_url)
+
+            if available:
+                logger.info(f"✅ Медиа {media_type} доступно (попытка {attempt + 1})")
+                return
+
+            if attempt < max_attempts - 1:
+                wait_time = 60
+                logger.info(f"⏳ Медиа {media_type} ещё не подгрузилось, жду {wait_time}с...")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.warning(f"⚠️ Медиа {media_type} не доступно после {max_attempts} попыток, отправляю как есть")
+
+    async def _check_media_available(self, media_url: str) -> bool:
+        """Проверить HEAD запросом что медиа доступно на серверах Telegram."""
         try:
-            topic = assignment.topic
-
-            if not topic or topic.is_closed:
-                logger.warning(f"⚠️ Тема закрыта или не существует: {assignment.topic_identifier}")
-                return False
-
-            # ✅ ПРОВЕРКА КЭША
-            topic_key = f"{topic.telegram_chat_id}:{topic.telegram_thread_id}"
-            if self._is_topic_cached_inactive(topic_key):
-                logger.debug(f"⏭️ Тема {topic_key} в кэше неактивных, пропускаем")
-                return False
-
-            message_text = self._format_telegram_post_message(post, source)
-
-            logger.info(f"📤 Отправляю текст в тему '{topic.topic_name}' (chat_id={topic.telegram_chat_id}, thread_id={topic.telegram_thread_id})")
-
-            success = await self._send_message_with_retry(
-                chat_id=topic.telegram_chat_id,
-                text=message_text,
-                thread_id=topic.telegram_thread_id
-            )
-
-            # ✅ ОБНОВЛЯЕМ last_seen_at (только标记, без flush!)
-            if success:
-                topic.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                updated_topics.add(topic)  # Добавляем в множество для bulk update
-                return True
-
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://t.me/',
+            }
+            async with aiohttp.ClientSession() as session:
+                async with session.head(media_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    return resp.status == 200
+        except asyncio.TimeoutError:
+            logger.debug(f"⏱️ Таймаут HEAD запроса к {media_url[:60]}...")
             return False
-
         except Exception as e:
-            # ✅ ИЗОЛЯЦИЯ ОШИБОК — не прерываем поток
-            logger.error(f"❌ Ошибка отправки текста: {e}", exc_info=False)
+            logger.debug(f"⚠️ Ошибка HEAD запроса к {media_url[:60]}: {e}")
             return False
+
+    # ======================================================================
+    # ОТПРАВКА С ПРЕВЬЮ
+    # ======================================================================
 
     async def _send_message_with_retry(
         self,
         chat_id: int,
         text: str,
         thread_id: Optional[int] = None,
+        keyboard: Optional[InlineKeyboardMarkup] = None,
+        post: Optional[Dict] = None,
+        source: Optional[ContentSource] = None,
         max_retries: int = 3
     ) -> bool:
-        """Отправить сообщение с повторными попытками. Возвращает True при успехе."""
-        
+        """Отправить сообщение с умным превью."""
+
+        # Определяем превью
+        link_preview = LinkPreviewOptions(is_disabled=True)
+        if post and source:
+            link_preview = self._get_link_preview_options(post, source)
+
         for attempt in range(max_retries):
             try:
-                logger.info(f"📤 Попытка {attempt + 1}/{max_retries}: отправка в chat_id={chat_id}, thread_id={thread_id}")
-
                 await self.bot.send_message(
                     chat_id=chat_id,
                     message_thread_id=thread_id,
                     text=text,
                     parse_mode="HTML",
-                    disable_web_page_preview=False
+                    link_preview_options=link_preview,
+                    reply_markup=keyboard
                 )
-
-                logger.info(f"✅ Сообщение успешно отправлено в chat_id={chat_id}, thread_id={thread_id}")
                 return True
 
             except Exception as e:
                 error = str(e).lower()
-                error_type = type(e).__name__
 
-                logger.error(f"❌ Ошибка отправки (попытка {attempt + 1}): {error_type} - {e}")
-
-                # Если бота кикнули из группы или запретили отправку
+                # Бота кикнули / запретили
                 if "forbidden" in error or "bot was kicked" in error or "not enough rights" in error:
                     logger.error(f"👢 Бот потерял доступ к группе {chat_id}")
-                    
-                    # ✅ КЭШИРУЕМ неактивную группу
                     self._group_cache[chat_id] = datetime.now(timezone.utc).replace(tzinfo=None)
-                    
-                    # ✅ ОТДЕЛЬНАЯ СЕССИЯ для cleanup (не конфликтует с основной)
                     await self._mark_group_inactive(chat_id)
                     return False
 
-                # Если тема удалена в Telegram
+                # Тема удалена
                 elif "message thread not found" in error:
                     logger.error(f"❌ Тема {thread_id} не найдена в чате {chat_id}")
-                    
-                    # ✅ КЭШИРУЕМ удалённую тему
                     topic_key = f"{chat_id}:{thread_id}"
                     self._topic_cache[topic_key] = datetime.now(timezone.utc).replace(tzinfo=None)
-                    
-                    # ✅ ОТДЕЛЬНАЯ СЕССИЯ для cleanup
                     await self._mark_topic_deleted(chat_id, thread_id)
                     return False
 
@@ -283,21 +224,31 @@ class PostSender:
                     self._group_cache[chat_id] = datetime.now(timezone.utc).replace(tzinfo=None)
                     return False
 
-                # Сообщение слишком длинное
+                # Ошибка парсинга HTML → plain text
+                elif "can't parse entities" in error or "bad request" in error:
+                    logger.warning(f"⚠️ Ошибка парсинга HTML, fallback на plain text")
+                    safe_text = html_to_plain_text(text)
+                    await self.bot.send_message(
+                        chat_id=chat_id,
+                        message_thread_id=thread_id,
+                        text=safe_text,
+                        link_preview_options=link_preview,
+                        reply_markup=keyboard
+                    )
+                    return True
+
+                # Слишком длинное сообщение
                 elif "message is too long" in error:
-                    logger.warning(f"⚠️ Сообщение слишком длинное, обрезаю...")
                     text = text[:3000] + "...\n\n[сообщение обрезано]"
                     if attempt < max_retries - 1:
                         continue
-                    else:
-                        logger.error(f"❌ Не удалось отправить даже после обрезания")
-                        return False
+                    return False
 
                 # Остальные ошибки
                 else:
                     if attempt < max_retries - 1:
                         wait = 2 * (attempt + 1)
-                        logger.warning(f"⏳ Неизвестная ошибка, жду {wait}с...")
+                        logger.warning(f"⏳ Жду {wait}с...")
                         await asyncio.sleep(wait)
                     else:
                         logger.error(f"❌ Все попытки исчерпаны: {e}")
@@ -305,18 +256,64 @@ class PostSender:
 
         return False
 
-    # ----------------------------------------------------------------------
-    # ✅ CLEANUP МЕТОДЫ С ОТДЕЛЬНЫМИ СЕССИЯМИ
-    # ----------------------------------------------------------------------
+    # ======================================================================
+    # LINK PREVIEW OPTIONS
+    # ======================================================================
+
+    def _get_link_preview_options(
+        self,
+        post: Dict,
+        source: ContentSource
+    ) -> Optional[LinkPreviewOptions]:
+        """Всегда включаем превью — даже для текстовых постов."""
+        username = source.telegram_username
+        post_id = post.get('post_id')
+
+        if not username or not post_id:
+            return LinkPreviewOptions(is_disabled=True)
+
+        # Обычная ссылка на пост — открывает в Telegram app
+        url = f"https://t.me/{username}/{post_id}"
+
+        return LinkPreviewOptions(
+            is_disabled=False,
+            url=url,
+            prefer_small_media=False,
+            prefer_large_media=True,
+            show_above_text=True
+        )
+
+    # ======================================================================
+    # КНОПКА
+    # ======================================================================
+
+    def _get_original_post_keyboard(self, post: Dict, source: ContentSource) -> Optional[InlineKeyboardMarkup]:
+        """Кнопка с названием канала."""
+        post_id = post.get('post_id')
+        username = source.telegram_username
+        channel_title = source.channel_title
+
+        if not post_id or not username:
+            return None
+
+        url = f"https://t.me/{username}/{post_id}"
+        button_text = f"📢 {channel_title}" if channel_title else f"📢 @{username}"
+
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=button_text, url=url)]
+        ])
+
+    # ======================================================================
+    # CLEANUP
+    # ======================================================================
 
     async def _mark_group_inactive(self, chat_id: int):
-        """Пометить группу как неактивную (отдельная сессия)"""
+        """Пометить группу как неактивную."""
         try:
             async with async_session() as cleanup_session:
                 stmt = select(ManagedGroup).where(ManagedGroup.telegram_chat_id == chat_id)
                 result = await cleanup_session.execute(stmt)
                 group = result.scalar_one_or_none()
-
                 if group:
                     group.is_bot_active_in_group = False
                     group.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -326,15 +323,13 @@ class PostSender:
             logger.error(f"❌ Не удалось обновить статус группы: {db_error}")
 
     async def _mark_topic_deleted(self, chat_id: int, thread_id: int):
-        """Пометить тему как удалённую (отдельная сессия)"""
+        """Пометить тему как удалённую."""
         try:
             topic_identifier = f"{chat_id}:{thread_id}" if thread_id else f"{chat_id}:0"
-            
             async with async_session() as cleanup_session:
                 stmt = select(GroupTopic).where(GroupTopic.topic_identifier == topic_identifier)
                 result = await cleanup_session.execute(stmt)
                 topic = result.scalar_one_or_none()
-
                 if topic:
                     topic.is_exists_in_tg = False
                     await cleanup_session.commit()
@@ -342,8 +337,12 @@ class PostSender:
         except Exception as db_error:
             logger.error(f"❌ Не удалось обновить статус темы: {db_error}")
 
+    # ======================================================================
+    # ФОРМАТИРОВАНИЕ
+    # ======================================================================
+
     def _format_telegram_post_message(self, post: Dict, source: ContentSource) -> str:
-        """Форматирование текста Telegram поста"""
+        """Форматирование текста поста (HTML)."""
         text = post.get('text', '').strip()
         if not text:
             text = "📎 [Медиа-сообщение]"
@@ -358,7 +357,7 @@ class PostSender:
         if timestamp:
             try:
                 time_str = datetime.fromtimestamp(timestamp).strftime("%H:%M")
-            except:
+            except Exception:
                 pass
 
         message = f"<b>{source_name}</b>\n"
@@ -367,11 +366,7 @@ class PostSender:
 
         message += text
 
-        if post.get('post_id') and source.telegram_username:
-            message += f"\n\n<a href='https://t.me/{source.telegram_username}/{post['post_id']}'>🔗 Оригинал</a>"
-
         if len(message) > 4000:
             message = message[:3997] + "..."
 
         return message
-

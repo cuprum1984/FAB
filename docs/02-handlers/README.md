@@ -38,7 +38,7 @@ bot/handlers/
 
 | Файл | Команды | Callback префиксы | Описание |
 |------|---------|-------------------|----------|
-| [`common.md`](common.md) | `/start`, `/help`, `/refresh` | `menu_` | Общие команды, главное меню |
+| [`common.md`](common.md) | `/start`, `/help`, `/refresh` | `menu_`, `legal_`, `consent_` | Общие команды, главное меню, **GDPR согласие** |
 | [`admin.md`](admin.md) | `/activ`, `/plus`, `/mytopics` | `admin_`, `group_`, `topic_` | Админ-панель, управление группами |
 | [`settings.md`](settings.md) | `/settings` | `settings_`, `lang_` | Настройки пользователя |
 | [`my_sources.md`](my_sources.md) | `/list` | `list_`, `src_` | Навигация по источникам |

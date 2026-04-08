@@ -120,6 +120,11 @@ class MonitoringService:
     async def _check_single_source(self, source, session: AsyncSession):
         """Проверка одного источника (вызывается с semaphore)."""
         try:
+            # ⛔ Проверка блокировки
+            if source.is_blocked:
+                logger.info(f"⛔ Источник {source.display_name} заблокирован ({source.blocked_reason}), пропуск")
+                return
+
             if not await self._check_source_security(source, session):
                 logger.warning(f"⏭️ Пропускаю небезопасный источник {source.source_global_id}")
                 return
