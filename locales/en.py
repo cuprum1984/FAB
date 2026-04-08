@@ -370,7 +370,9 @@ MESSAGES = {
                                        "🎯 Destination: {destination}\n\n"
                                        "⏳ Next videos will arrive automatically (every 30 minutes).",
         "destination_error": "❌ Error adding channel: {error}",
-        
+
+        "source_blocked": "⛔ The admin of channel <b>@{username}</b> does not want MyAggryBot to parse their content. This source has been blocked at the author's request.",
+
         # Sources list (/list)
         "list_no_groups": "<b>❌ No active groups</b>\n\n"
                           "<i>First add a group via Admin Panel or /activ command</i>",

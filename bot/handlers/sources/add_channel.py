@@ -20,6 +20,8 @@ from core.parser.telegram_posts import get_new_posts as get_telegram_posts
 from core.parser.youtube_simple import get_parser
 from core.security import URLSecurity
 from core.utils.topic_checker import verify_user_topics
+from core.models.sources import ContentSource
+from sqlalchemy import select
 
 from .youtube_handlers import process_youtube_channel
 from .telegram_handlers import process_telegram_channel
@@ -154,6 +156,23 @@ async def process_channel_username(message: Message, state: FSMContext, session:
         channel_title = channel_data['channel_title']
         video_id = channel_data['video_id']
 
+        # ⛔ Проверяем что источник не заблокирован
+        source_global_id_check = f"yt_channel_{channel_id}"
+        stmt = select(ContentSource).where(ContentSource.source_global_id == source_global_id_check)
+        result = await session.execute(stmt)
+        existing_source = result.scalar_one_or_none()
+
+        if existing_source and existing_source.is_blocked:
+            await update_or_send_menu(
+                bot=bot,
+                chat_id=message.from_user.id,
+                text=get_text(['sources', 'source_blocked'], username=username),
+                keyboard=get_cancel_kb(get_text),
+                state=state,
+                fallback_message=message
+            )
+            return
+
         # Сохраняем все данные
         source_global_id = f"yt_channel_{channel_id}"
         await state.update_data(
@@ -203,6 +222,23 @@ async def process_channel_username(message: Message, state: FSMContext, session:
                 bot=bot,
                 chat_id=message.from_user.id,
                 text=get_text(['sources', 'telegram_not_found'], error=error),
+                keyboard=get_cancel_kb(get_text),
+                state=state,
+                fallback_message=message
+            )
+            return
+
+        # ⛔ Проверяем что источник не заблокирован
+        source_global_id_check = f"tg_channel_{username}"
+        stmt = select(ContentSource).where(ContentSource.source_global_id == source_global_id_check)
+        result = await session.execute(stmt)
+        existing_source = result.scalar_one_or_none()
+
+        if existing_source and existing_source.is_blocked:
+            await update_or_send_menu(
+                bot=bot,
+                chat_id=message.from_user.id,
+                text=get_text(['sources', 'source_blocked'], username=username),
                 keyboard=get_cancel_kb(get_text),
                 state=state,
                 fallback_message=message

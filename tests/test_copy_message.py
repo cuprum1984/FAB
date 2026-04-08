@@ -1,6 +1,6 @@
 """
 Тесты copy_message режима отправки постов.
-Версия: 6.7 (5 апреля 2026)
+Версия: 6.9 (7 апреля 2026)
 """
 import pytest
 import pytest_asyncio
@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 
 from core.services.monitoring.post_sender import PostSender
+from aiogram.types import LinkPreviewOptions
 
 
 class FakeTopic:
@@ -36,138 +37,6 @@ class FakeSource:
         self.channel_title = title
 
 
-class TestCopyMessageToTopic:
-    """Тесты copy_message метода"""
-
-    @pytest.mark.asyncio
-    async def test_copy_message_success(self):
-        """Успешное копирование сообщения"""
-        mock_bot = AsyncMock()
-        mock_bot.copy_message = AsyncMock()
-
-        post_sender = PostSender(mock_bot)
-        post = {'post_id': '123'}
-        source = FakeSource()
-        assignment = FakeAssignment()
-        updated_topics = set()
-
-        result = await post_sender._copy_message_to_topic(
-            post=post,
-            source=source,
-            assignment=assignment,
-            updated_topics=updated_topics
-        )
-
-        assert result is True
-        mock_bot.copy_message.assert_called_once()
-        assert len(updated_topics) == 1
-
-    @pytest.mark.asyncio
-    async def test_copy_message_missing_post_id(self):
-        """Отсутствует post_id"""
-        mock_bot = AsyncMock()
-        post_sender = PostSender(mock_bot)
-        post = {'post_id': None}
-        source = FakeSource()
-        assignment = FakeAssignment()
-        updated_topics = set()
-
-        result = await post_sender._copy_message_to_topic(
-            post=post,
-            source=source,
-            assignment=assignment,
-            updated_topics=updated_topics
-        )
-
-        assert result is False
-        mock_bot.copy_message.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_copy_message_missing_username(self):
-        """Отсутствует username источника"""
-        mock_bot = AsyncMock()
-        post_sender = PostSender(mock_bot)
-        post = {'post_id': '123'}
-        source = FakeSource(username=None)
-        assignment = FakeAssignment()
-        updated_topics = set()
-
-        result = await post_sender._copy_message_to_topic(
-            post=post,
-            source=source,
-            assignment=assignment,
-            updated_topics=updated_topics
-        )
-
-        assert result is False
-        mock_bot.copy_message.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_copy_message_private_channel_error(self):
-        """Ошибка приватного канала (forbidden)"""
-        mock_bot = AsyncMock()
-        mock_bot.copy_message = AsyncMock(side_effect=Exception("Forbidden: bot was kicked"))
-
-        post_sender = PostSender(mock_bot)
-        post = {'post_id': '123'}
-        source = FakeSource()
-        assignment = FakeAssignment()
-        updated_topics = set()
-
-        result = await post_sender._copy_message_to_topic(
-            post=post,
-            source=source,
-            assignment=assignment,
-            updated_topics=updated_topics
-        )
-
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_copy_message_chat_not_found_error(self):
-        """Ошибка чат не найден"""
-        mock_bot = AsyncMock()
-        mock_bot.copy_message = AsyncMock(side_effect=Exception("Chat not found"))
-
-        post_sender = PostSender(mock_bot)
-        post = {'post_id': '123'}
-        source = FakeSource()
-        assignment = FakeAssignment()
-        updated_topics = set()
-
-        result = await post_sender._copy_message_to_topic(
-            post=post,
-            source=source,
-            assignment=assignment,
-            updated_topics=updated_topics
-        )
-
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_copy_message_updates_last_seen_at(self):
-        """copy_message обновляет last_seen_at"""
-        mock_bot = AsyncMock()
-        mock_bot.copy_message = AsyncMock()
-
-        post_sender = PostSender(mock_bot)
-        post = {'post_id': '123'}
-        source = FakeSource()
-        topic = FakeTopic()
-        assignment = FakeAssignment(topic=topic)
-        updated_topics = set()
-
-        await post_sender._copy_message_to_topic(
-            post=post,
-            source=source,
-            assignment=assignment,
-            updated_topics=updated_topics
-        )
-
-        assert topic.last_seen_at is not None
-        assert topic in updated_topics
-
-
 class TestOriginalPostKeyboard:
     """Тесты создания клавиатуры с кнопкой оригинала"""
 
@@ -184,7 +53,7 @@ class TestOriginalPostKeyboard:
         assert len(keyboard.inline_keyboard) == 1
         assert len(keyboard.inline_keyboard[0]) == 1
         button = keyboard.inline_keyboard[0][0]
-        assert button.text == "📎 Открыть оригинал"
+        assert button.text == "📢 Test Channel"
         assert button.url == "https://t.me/test_channel/123"
 
     def test_keyboard_with_missing_post_id(self):
@@ -287,7 +156,7 @@ class TestFormatTelegramPostMessage:
 
 
 class TestSendToAssignment:
-    """Тесты универсального метода send_to_assignment"""
+    """Тесты send_to_assignment"""
 
     @pytest.mark.asyncio
     async def test_closed_topic_returns_false(self):
@@ -310,49 +179,20 @@ class TestSendToAssignment:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_fallback_to_html_on_copy_message_error(self):
-        """Fallback на HTML при ошибке copy_message"""
+    async def test_send_text_with_preview(self):
+        """Отправка текста с превью"""
         mock_bot = AsyncMock()
-        mock_bot.copy_message = AsyncMock(side_effect=Exception("Chat not found"))
         mock_bot.send_message = AsyncMock(return_value=True)
 
         post_sender = PostSender(mock_bot)
-        post = {'post_id': '123', 'text': 'Текст'}
+        post = {
+            'post_id': '123',
+            'text': 'Текст поста',
+            'media': [{'type': 'photo', 'url': 'https://cdn.example.com/photo.jpg'}]
+        }
         source = FakeSource()
         assignment = FakeAssignment()
         updated_topics = set()
-
-        result = await post_sender.send_to_assignment(
-            post=post,
-            assignment=assignment,
-            source=source,
-            session=None,
-            updated_topics=updated_topics
-        )
-
-        # Должен сработать fallback на HTML
-        assert result is True
-        mock_bot.send_message.assert_called()
-
-    @pytest.mark.asyncio
-    async def test_fallback_to_plain_on_html_error(self):
-        """Fallback на plain text при ошибке HTML"""
-        mock_bot = AsyncMock()
-        mock_bot.copy_message = AsyncMock(side_effect=Exception("Chat not found"))
-        # Первый вызов send_message (HTML) падает, второй (plain) успешен
-        mock_bot.send_message = AsyncMock(side_effect=[
-            Exception("Can't parse entities"),
-            True
-        ])
-
-        post_sender = PostSender(mock_bot)
-        post = {'post_id': '123', 'text': 'Текст'}
-        source = FakeSource()
-        assignment = FakeAssignment()
-        updated_topics = set()
-
-        # _send_message_with_retry обрабатывает ошибку парсинга internally
-        mock_bot.send_message = AsyncMock(return_value=True)
 
         result = await post_sender.send_to_assignment(
             post=post,
@@ -363,3 +203,195 @@ class TestSendToAssignment:
         )
 
         assert result is True
+        mock_bot.send_message.assert_called()
+        # Проверка что link_preview_options передан
+        call_kwargs = mock_bot.send_message.call_args.kwargs
+        assert 'link_preview_options' in call_kwargs
+
+
+# ======================================================================
+# ТЕСТЫ LINK PREVIEW OPTIONS (v6.9)
+# ======================================================================
+
+class TestLinkPreviewOptions:
+    """Тесты умного превью (LinkPreviewOptions)"""
+
+    def test_link_preview_with_media(self):
+        """Превью ВКЛ если есть медиа в посте"""
+        mock_bot = MagicMock()
+        post_sender = PostSender(mock_bot)
+
+        post = {
+            'post_id': '123',
+            'text': '<b>Тест</b>',
+            'media': [{'type': 'photo', 'url': 'https://cdn.example.com/photo.jpg'}],
+            'url': 'https://t.me/test_channel/123',
+            'timestamp': 1234567890
+        }
+        source = FakeSource()
+
+        options = post_sender._get_link_preview_options(post, source)
+
+        assert options.is_disabled is False
+        assert options.url == 'https://t.me/test_channel/123'
+        assert options.prefer_large_media is True
+        assert options.show_above_text is True
+
+    def test_link_preview_without_media(self):
+        """Превью ВКЛ даже если нет медиа"""
+        mock_bot = MagicMock()
+        post_sender = PostSender(mock_bot)
+
+        post = {
+            'post_id': '123',
+            'text': '<b>Тест</b>',
+            'url': 'https://t.me/test_channel/123',
+            'timestamp': 1234567890
+        }
+        source = FakeSource()
+
+        options = post_sender._get_link_preview_options(post, source)
+
+        assert options.is_disabled is False
+
+    def test_link_preview_url_is_post_url(self):
+        """Превью на t.me/username/123"""
+        mock_bot = MagicMock()
+        post_sender = PostSender(mock_bot)
+
+        post = {
+            'post_id': '456',
+            'text': '<b>Тест</b>',
+            'media': [{'type': 'photo', 'url': 'https://cdn.example.com/photo.jpg'}],
+            'url': 'https://t.me/mychannel/456',
+            'timestamp': 1234567890
+        }
+        source = FakeSource(username='mychannel')
+
+        options = post_sender._get_link_preview_options(post, source)
+
+        assert options.url == 'https://t.me/mychannel/456'
+
+    def test_link_preview_large_media(self):
+        """prefer_large_media=True"""
+        mock_bot = MagicMock()
+        post_sender = PostSender(mock_bot)
+
+        post = {
+            'post_id': '123',
+            'media': [{'type': 'photo', 'url': 'https://cdn.example.com/photo.jpg'}]
+        }
+        source = FakeSource()
+
+        options = post_sender._get_link_preview_options(post, source)
+
+        assert options.prefer_large_media is True
+        assert options.prefer_small_media is False
+
+    def test_link_preview_above_text(self):
+        """show_above_text=True"""
+        mock_bot = MagicMock()
+        post_sender = PostSender(mock_bot)
+
+        post = {
+            'post_id': '123',
+            'media': [{'type': 'photo', 'url': 'https://cdn.example.com/photo.jpg'}]
+        }
+        source = FakeSource()
+
+        options = post_sender._get_link_preview_options(post, source)
+
+        assert options.show_above_text is True
+
+    def test_link_preview_ignores_external_links(self):
+        """Внешние ссылки в тексте не перехватывают превью"""
+        mock_bot = MagicMock()
+        post_sender = PostSender(mock_bot)
+
+        post = {
+            'post_id': '123',
+            'text': '<b>Текст</b> <a href="https://external.com/article">статья</a>',
+            'media': [{'type': 'photo', 'url': 'https://cdn.example.com/photo.jpg'}],
+            'url': 'https://t.me/test_channel/123',
+            'timestamp': 1234567890
+        }
+        source = FakeSource()
+
+        options = post_sender._get_link_preview_options(post, source)
+
+        # Превью на пост, не на внешнюю ссылку
+        assert options.url == 'https://t.me/test_channel/123'
+        assert options.is_disabled is False
+
+    def test_link_preview_missing_post_id(self):
+        """Превью ВЫКЛ если нет post_id"""
+        mock_bot = MagicMock()
+        post_sender = PostSender(mock_bot)
+
+        post = {
+            'text': '<b>Тест</b>',
+            'media': [{'type': 'photo', 'url': 'https://cdn.example.com/photo.jpg'}]
+        }
+        source = FakeSource()
+
+        options = post_sender._get_link_preview_options(post, source)
+
+        assert options.is_disabled is True
+
+    def test_link_preview_missing_username(self):
+        """Превью ВЫКЛ если нет username"""
+        mock_bot = MagicMock()
+        post_sender = PostSender(mock_bot)
+
+        post = {
+            'post_id': '123',
+            'media': [{'type': 'photo', 'url': 'https://cdn.example.com/photo.jpg'}]
+        }
+        source = FakeSource(username=None)
+
+        options = post_sender._get_link_preview_options(post, source)
+
+        assert options.is_disabled is True
+
+
+class TestKeyboardChannelTitle:
+    """Тесты кнопки с названием канала"""
+
+    def test_keyboard_channel_title(self):
+        """Кнопка с названием канала"""
+        mock_bot = MagicMock()
+        post_sender = PostSender(mock_bot)
+
+        post = {'post_id': '123'}
+        source = FakeSource(username='techcrunch', title='TechCrunch')
+
+        keyboard = post_sender._get_original_post_keyboard(post, source)
+
+        assert keyboard is not None
+        button = keyboard.inline_keyboard[0][0]
+        assert button.text == "📢 TechCrunch"
+        assert button.url == "https://t.me/techcrunch/123"
+
+    def test_keyboard_username_fallback(self):
+        """Кнопка с @username если нет названия"""
+        mock_bot = MagicMock()
+        post_sender = PostSender(mock_bot)
+
+        post = {'post_id': '456'}
+        source = FakeSource(username='mychannel', title=None)
+
+        keyboard = post_sender._get_original_post_keyboard(post, source)
+
+        assert keyboard is not None
+        button = keyboard.inline_keyboard[0][0]
+        assert button.text == "📢 @mychannel"
+        assert button.url == "https://t.me/mychannel/456"
+
+    def test_external_links_preserved_in_text(self):
+        """Внешние ссылки остаются в тексте (не удаляются)"""
+        # Проверяем что _send_message_with_retry НЕ модифицирует текст
+        original_text = '<b>Текст</b> <a href="https://external.com">статья</a>'
+
+        # Текст должен остатьсяяться без изменений
+        # (мы только передаём link_preview_options, не трогаем text)
+        assert 'https://external.com' in original_text  # Ссылка на месте

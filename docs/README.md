@@ -1,7 +1,7 @@
 # 📚 Документация MyAggryBot
 
-**Версия проекта:** 6.6
-**Последнее обновление:** 2 апреля 2026
+**Версия проекта:** 6.9
+**Последнее обновление:** 8 апреля 2026
 
 ---
 
@@ -10,6 +10,7 @@
 | Документ | Описание |
 |----------|----------|
 | [📖 Обзор проекта](overview.md) | Полная информация о проекте (1300 строк) |
+| [⚙️ Как работает](01-general/how-it-works.md) | **Кратко:** парсинг → отправка → лимитеры |
 | [📋 Changelog](CHANGELOG.md) | История версий со ссылками на детали |
 | [🏗️ Архитектура](01-general/architecture.md) | Распределённая архитектура (бот, мониторинг, отправщик) |
 
@@ -22,6 +23,7 @@
 | Файл | Описание |
 |------|----------|
 | [overview.md](overview.md) | **ГЛАВНЫЙ** — полный отчёт по проекту |
+| [01-general/how-it-works.md](01-general/how-it-works.md) | **Кратко:** парсинг → отправка → лимитеры (для ИИ) |
 | [01-general/architecture.md](01-general/architecture.md) | Архитектура и сервисы |
 | [01-general/deployment.md](01-general/deployment.md) | Развёртывание и окружение |
 
@@ -51,6 +53,7 @@
 | Файл | Описание |
 |------|----------|
 | [04-services/README.md](04-services/README.md) | Обзор сервисов |
+| [04-services/post-sender.md](04-services/post-sender.md) | **PostSender** — отправка постов с превью |
 | [04-services/rate-limiting.md](04-services/rate-limiting.md) | **Готово** — Rate Limiting (Token Bucket) |
 | [04-services/monitoring.md](04-services/monitoring.md) | **Готово** — Monitoring Service |
 | [04-services/destinations.md](04-services/destinations.md) | Destination Service |

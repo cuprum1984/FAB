@@ -5,7 +5,7 @@
 from datetime import datetime
 from typing import Optional, List
 
-from sqlalchemy import BigInteger, ForeignKey, String, Integer, UniqueConstraint, Index, DateTime, func
+from sqlalchemy import BigInteger, ForeignKey, String, Integer, UniqueConstraint, Index, DateTime, func, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -20,6 +20,7 @@ class ContentSource(Base):
         Index('idx_source_last_post', 'last_successful_post_id'),
         Index('idx_source_last_checked', 'last_checked_timestamp'),
         Index('idx_youtube_username', 'youtube_username'),
+        Index('idx_source_blocked', 'is_blocked'),
     )
 
     source_global_id: Mapped[str] = mapped_column(String(256), primary_key=True)
@@ -45,6 +46,27 @@ class ContentSource(Base):
     last_successful_post_timestamp: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     last_checked_timestamp: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     parsing_interval: Mapped[int] = mapped_column(Integer, server_default="300", nullable=False)
+
+    # ===== БЛОКИРОВКА =====
+    is_blocked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default="false"
+    )
+    """Если True — источник исключён из парсинга (по просьбе автора)"""
+
+    blocked_reason: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True
+    )
+    """Причина: 'author_request', 'dmca', 'tos_violation', etc."""
+
+    verification_code: Mapped[Optional[str]] = mapped_column(
+        String(8),
+        nullable=True
+    )
+    """Код верификации авторства (публикуется автором в канале)"""
 
     subscriptions: Mapped[List["SourceSubscription"]] = relationship(
         back_populates="source",
