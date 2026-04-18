@@ -48,6 +48,14 @@ async def activate_group(message: Message, bot: Bot, session: AsyncSession, get_
     if message.chat.type not in ("group", "supergroup"):
         return  # middleware должно было отсечь, но для надёжности
     
+    # ✅ ПРОВЕРКА: только супергруппы поддерживают темы (форумы)
+    if message.chat.type == "group":
+        await message.answer(
+            get_text(['admin', 'activ_only_supergroup']),
+            parse_mode="HTML"
+        )
+        return
+    
     chat_id = message.chat.id
     user_id = message.from_user.id
 
