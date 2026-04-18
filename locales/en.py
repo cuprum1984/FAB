@@ -240,6 +240,14 @@ MESSAGES = {
                          "• Register topics via /plus\n"
                          "• Manage via Admin Panel",
         "activ_error": "<b>❌ Error activating group:</b>\n<code>{error}</code>",
+        "activ_only_supergroup": "<b>❌ Regular groups are not supported!</b>\n\n"
+                                 "The bot works <b>only with SUPERGROUPS (Forums)</b> Telegram.\n\n"
+                                 "<b>How to fix:</b>\n"
+                                 "1. Open group settings\n"
+                                 "2. Enable the 'Topics' (Forums) option\n"
+                                 "3. The group will automatically become a supergroup\n"
+                                 "4. Re-enter the /activ command\n\n"
+                                 "⚠️ After enabling topics, this action cannot be undone.",
         
         # ✅ НОВЫЙ КЛЮЧ: сообщение в ЛС после активации группы
         "activ_success_dm": "<b>✅ Group activated!</b>\n\n"
@@ -271,6 +279,12 @@ MESSAGES = {
                                  "First activate the group with the <code>/activ</code> command",
         "plus_not_admin": "❌ Only administrators can register topics.",
         "plus_error": "❌ Error checking permissions: {error}",
+        "plus_enter_name": "<b>📝 Enter topic name:</b>\n\n"
+                           "For example: <i>Chat, News, Discussion</i>\n\n"
+                           "Send the name as text or click 'Cancel' to abort.",
+        "plus_name_too_short": "❌ Topic name must be at least 1 character.",
+        "plus_name_too_long": "❌ Topic name must be no more than 128 characters.",
+        "plus_cancelled": "❌ Topic registration cancelled.",
         "plus_already_exists": "<b>✅ Topic already registered!</b>\n\n"
                                "• <b>📛 Name:</b> {name}\n"
                                "• <b>🆔 Topic ID:</b> {thread_id}\n"

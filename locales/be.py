@@ -15,9 +15,9 @@ MESSAGES = {
                      "1. Дадайце бота ў групу і зрабіце адміністратарам\n"
                      "2. У групе ўвядзіце каманду /activ\n"
                      "3. Вяртайцеся сюды і націсніце '📥 Дадаць канал'",
-
+        
         "start_return": "👋 <b>З вяртаннем, {first_name}!</b>\n\n🤖 Бот гатовы да працы.",
-
+        
         "help": "<b>📖 Даведка MyAggryBot</b>\n\n"
                 "<b>🔧 Асноўныя каманды:</b>\n"
                 "• /start - запуск бота\n"
@@ -49,7 +49,7 @@ MESSAGES = {
                 "<b>❓ Што працуе:</b>\n"
                 "• Толькі кнопка - Дадаць канал.\n"
                 "• Ну і сам парсінг.\n",
-
+        
         "cancel": "❌ Дзеянне скасавана.",
         "no_active_action": "❌ Няма актыўнага дзеяння.",
         "menu": "🏠 <b>Галоўнае меню</b>",
@@ -72,7 +72,7 @@ MESSAGES = {
         # Main menu
         "main_menu": {
             "add_channel": "✚ Дадаць канал",
-            "my_sources": "📚 Маё крыніцы",
+            "my_sources": "📚 Мае крыніцы",
             "my_feed": "📰 Мая стужка",
             "overview": "📰 Агляд",
             "settings": "⚙️ Налады",
@@ -81,10 +81,10 @@ MESSAGES = {
             "refresh": "🔄 Абнавіць",
             "placeholder": "Абярыце дзеянне...",
         },
-
+        
         # Main menu title (for back buttons)
         "main_menu_title": "🏠 Галоўнае меню",
-
+        
         "admin_menu": {
             "manage_groups": "👥 Кіраванне групамі",
             "manage_topics": "🗂️ Кіраванне тэмамі",
@@ -93,7 +93,7 @@ MESSAGES = {
             "back": "← Назад",
             "placeholder": "Адмін дзеянні...",
         },
-
+        
         "groups_menu": {
             "add_group": "➕ Дадаць групу",
             "back": "← Назад",
@@ -107,6 +107,13 @@ MESSAGES = {
             "dot": ".",
         },
 
+        "topics_menu": {
+            "prev": "◀️ Назад",
+            "next": "Наперад ▶️",
+            "back": "← Назад",
+            "dot": ".",
+        },
+        
         "destinations": {
             "general_emoji": "💬",
             "topic_emoji": "🗨️",
@@ -121,8 +128,19 @@ MESSAGES = {
             "prev": "◀️ Назад",
             "next": "Наперад ▶️",
             "noop": "⏺️",
+            "dot": ".",
         },
 
+        "overview": {
+            "prev": "◀️ Назад",
+            "next": "Наперад ▶️",
+            "dot": ".",
+            "title": "📰 Агляд крыніц",
+            "no_groups": "❌ Няма актыўных груп",
+            "groups_count": "📊 Знойдзена груп: {count}",
+            "sources_count": "📊 Усяго крыніц: {count}",
+        },
+        
         "cancel": "❌ Скасаванне",
         "back": "← Назад",
         "back_to_groups": "🔙 Да груп",
@@ -130,19 +148,19 @@ MESSAGES = {
         "back_to_sources": "🔙 Да крыніц",
         "back_to_settings": "← Назад у налады",
         "back_to_main": "🔙 У галоўнае меню",
-
+        
         "confirm_add": "✅ Так, дадаць",
         "edit_title": "✏️ Змяніць назву",
         "cancel_add": "❌ Не, скасаваць",
-
+        
         "settings_menu": {
             "language": "🌐 Мова / Language",
             "legal_terms": "📋 Умовы і канфідэнцыяльнасць",
-            "delete_data": "🗑️ Выдаліць маё даныя",
+            "delete_data": "🗑️ Выдаліць мае даныя",
             "back": "← Назад",
             "placeholder": "Налады...",
         },
-
+        
         "language_menu": {
             "en": "English",
             "ru": "Русский",
@@ -151,10 +169,10 @@ MESSAGES = {
             "back": "← Назад",
             "prompt": "Абярыце мову:",
         },
-
+        
         "confirm_delete": "✅ ТАК, выдаліць усё",
         "cancel_delete": "❌ НЕ, скасаванне",
-
+        
         "sources_list": {
             "view_source": "📰 {name}",
             "delete": "❌ Выдаліць",
@@ -163,9 +181,10 @@ MESSAGES = {
             "close": "❌ Зачыніць",
             "page": "{current}/{total}",
             "noop": "⏺️",
+            "dot": ".",
         },
     },
-
+    
     # ========== ADMIN (admin.py) ==========
     "admin": {
         "panel": "👨‍💼 <b>Адмін-панэль</b>",
@@ -192,7 +211,7 @@ MESSAGES = {
         "no_topics": "<i>Няма зарэгістраваных тэм</i>\n",
         "topic_item": "{i}. <b>{name}</b>{thread_info}\n",
         "general_topic": " (General)",
-
+        
         # /activ command
         "activ_group_only": "❌ Каманда працуе толькі ў групах.",
         "activ_not_admin": "❌ Толькі адміністратары групы могуць актываваць бота.",
@@ -217,11 +236,20 @@ MESSAGES = {
                          "• Рэгістраваць тэмы праз /plus\n"
                          "• Кіраваць праз Адмін-панэль",
         "activ_error": "<b>❌ Памылка пры актывацыі групы:</b>\n<code>{error}</code>",
-
+        "activ_only_supergroup": "<b>❌ Звычайныя групы не падтрымліваюцца!</b>\n\n"
+                                 "Бот працуе <b>толькі з СУПЕРГРУПАМІ (Форумамі)</b> Telegram.\n\n"
+                                 "<b>Як выправіць:</b>\n"
+                                 "1. Адкрыйце налады групы\n"
+                                 "2. Уключыце опцыю «Тэмы» (Форумы)\n"
+                                 "3. Група аўтаматычна стане супергрупай\n"
+                                 "4. Паўторна ўвядзіце каманду /activ\n\n"
+                                 "⚠️ Пасля ўключэння тэм гэтае дзеянне нельга скасаваць.",
+        
+        # ✅ НОВЫ КЛЮЧ: паведамленне ў ЛС пасля актывацыі групы
         "activ_success_dm": "<b>✅ Група актывавана!</b>\n\n"
                             "Група '<b>{name}</b>' паспяхова актывавана.\n\n"
                             "Цяпер вы можаце кіраваць ёй праз адмін-панэль:",
-
+        
         # /mytopics command
         "mytopics_title": "<b>🗂️ Вашы зарэгістраваныя тэмы</b>\n\n",
         "mytopics_no_groups": "<b>❌ Няма актыўных груп</b>\n\n"
@@ -237,7 +265,7 @@ MESSAGES = {
                           "2. Напішыце каманду <code>/plus</code>\n"
                           "3. Бот зарэгіструе тэму\n\n"
                           "<i>Пасля рэгістрацыі тэмы можна дадаваць у яе крыніцы праз /add</i>",
-
+        
         # /plus command
         "plus_not_in_topic": "<b>❌ Гэтая каманда працуе толькі ўнутры тэмы!</b>\n\n"
                              "1. Перайдзіце ў патрэбную тэму\n"
@@ -247,6 +275,12 @@ MESSAGES = {
                                  "Спачатку актывуйце групу камандай <code>/activ</code>",
         "plus_not_admin": "❌ Толькі адміністратары могуць рэгістраваць тэмы.",
         "plus_error": "❌ Памылка праверкі правоў: {error}",
+        "plus_enter_name": "<b>📝 Увядзіце назву тэмы:</b>\n\n"
+                           "Напрыклад: <i>Флудзілка, Навіны, Абмеркаванне</i>\n\n"
+                           "Адпраўце назву тэкстам або націсніце 'Скасаваць' для адмены.",
+        "plus_name_too_short": "❌ Назва тэмы павінна быць не менш за 1 сімвал.",
+        "plus_name_too_long": "❌ Назва тэмы павінна быць не больш за 128 сімвалаў.",
+        "plus_cancelled": "❌ Рэгістрацыю тэмы скасавана.",
         "plus_already_exists": "<b>✅ Тэма ўжо зарэгістравана!</b>\n\n"
                                "• <b>📛 Назва:</b> {name}\n"
                                "• <b>🆔 ID тэмы:</b> {thread_id}\n"
@@ -260,7 +294,7 @@ MESSAGES = {
                         "• <b>🔗 Ідэнтыфікатар:</b> <code>{identifier}</code>",
         "plus_error_db": "<b>❌ Памылка пры рэгістрацыі тэмы:</b>\n<code>{error}</code>",
     },
-
+    
     # ========== SOURCES (sources.py) ==========
     "sources": {
         "add_no_groups": "<b>❌ Спачатку дадайце хаця б адну групу праз Адмін-панэль.</b>\n\n"
@@ -277,7 +311,7 @@ MESSAGES = {
                       "• @ОбманутыйРоссиянин (кірыліца)\n\n"
                       "<i>YouTube каналы — па спасылцы або @username</i>",
         "add_cancelled": "❌ Даданне скасавана.",
-
+        
         "youtube_invalid_link": "<b>❌ Гэта спасылка на відэа, а не на канал</b>\n\n"
                                 "Увядзіце спасылку на канал, напрыклад:\n"
                                 "https://youtube.com/@TheBrainDit",
@@ -296,7 +330,7 @@ MESSAGES = {
                          "• <b>Апошняе відэа:</b> {video_id}\n"
                          "• <b>Спасылка:</b> https://youtu.be/{video_id}\n\n"
                          "<b>Дадаць гэты канал?</b>",
-
+        
         "telegram_invalid_domain": "<b>❌ Недапушчальная спасылка</b>\n\n"
                                    "Дазволены толькі спасылкі на Telegram каналы.",
         "telegram_invalid_username": "<b>❌ Няправільны фармат username</b>\n\n"
@@ -310,7 +344,7 @@ MESSAGES = {
                           "• Назва: {title}\n"
                           "• Апошні пост ID: {post_id}\n\n"
                           "<b>Дадаць гэты канал?</b>",
-
+        
         "add_confirm": "<b>Дадаць гэты канал?</b>",
         "add_saving": "✅ Канал знойдзены!\n"
                       "📥 Апошні пост ID: {post_id}\n\n"
@@ -364,26 +398,26 @@ MESSAGES = {
                       "<b>🔧 Кіраванне:</b> Абярыце крыніцу для кіравання",
         "list_page_empty": "<i>Няма крыніц на гэтай старонцы</i>\n\n",
         "list_closed": "✅ Спіс крыніц зачынены",
-
+        
         "error_no_type": "❌ Памылка: не ўказаны тып крыніцы",
         "error_no_username": "❌ Памылка: не ўказаны username канала",
         "error_no_channel_id": "❌ Памылка: не ўказаны ID канала",
         "error_no_groups": "❌ Памылка: няма даступных груп",
         "error_no_groups_short": "❌ Няма актыўных груп",
         "error_general": "❌ Адбылася памылка: {error}",
-
+        
         "delete_not_found": "❌ Падпіска не знойдзена",
         "delete_success": "✅ Падпіска выдалена",
         "delete_error": "❌ Памылка пры выдаленні падпіскі",
     },
-
+    
     # ========== TOPICS AUTO (topics_auto.py) ==========
     "topics_auto": {
-        "topic_created": "📌 Створана новую тэму: '{name}' (ID: {thread_id})",
-        "topic_edited": "🔄 Тэму перайменавана: '{name}' (ID: {thread_id})",
-        "topic_closed": "🔒 Тэму зачынена (ID: {thread_id})",
+        "topic_created": "📌 Створана новая тэма: '{name}' (ID: {thread_id})",
+        "topic_edited": "🔄 Тэма перайменавана: '{name}' (ID: {thread_id})",
+        "topic_closed": "🔒 Тэма зачынена (ID: {thread_id})",
     },
-
+    
     # ========== SETTINGS (settings_handler.py) ==========
     "settings": {
         "title": "<b>⚙️ Налады</b>\n\n"
@@ -409,7 +443,7 @@ MESSAGES = {
         "language_uk": "Українська",
         "language_be": "Беларуская",
         "language_back": "← Назад у налады",
-
+        
         "delete_warning": "<b>⚠️ УВАГА!</b>\n\n"
                           "Вы збіраецеся выдаліць <b>УСЕ СВАЕ ДАНЫЯ</b> з бота:\n\n"
                           "• 🗂️ Усе асабістыя падпіскі\n"
@@ -432,7 +466,7 @@ MESSAGES = {
         "delete_cancelled": "✅ Выдаленне даных скасавана",
         "delete_error": "❌ Памылка пры выдаленні даных: {error}",
     },
-
+    
     # ========== MIDDLEWARE MESSAGES ==========
     "middleware": {
         "group_only_command": (
