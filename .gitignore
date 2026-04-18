@@ -173,11 +173,11 @@ bot.py
 cleaner.py
 monitor.py
 sender.py
-.env.local
 tools/
-docker-compose.yml
 QWEN.md
 session-analysis-mode.json
+connect.py
+.clinerules
 # Spyder project settings
 .spyderproject
 .spyproject

@@ -424,7 +424,7 @@ MESSAGES = {
                                "Все средства пойдут на оплату серверов и развитие проекта.\n\n"
                                "Выберите сумму:",
         "support_thank_you": "🙏 Огромное спасибо за поддержку!",
-        "support_stars_sent": "Вы отправили { $count } ⭐",
+        "support_stars_sent": "Вы отправили {count} ⭐",
         "support_help_text": "Ваша помощь очень ценна для развития MyAggryBot! 💙",
 
         "language_prompt": "<b>🌐 Выберите язык</b>\n\n"

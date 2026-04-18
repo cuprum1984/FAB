@@ -427,7 +427,7 @@ MESSAGES = {
                                "All funds will go towards server costs and project development.\n\n"
                                "Choose an amount:",
         "support_thank_you": "🙏 Thank you so much for your support!",
-        "support_stars_sent": "You sent { $count } ⭐",
+        "support_stars_sent": "You sent {count} ⭐",
         "support_help_text": "Your help is very valuable for MyAggryBot development! 💙",
 
         # Language

@@ -62,6 +62,11 @@ MESSAGES = {
                    "🤖 <b>MyAggryBot</b> гатовы да працы.\n\n",
     },
 
+    # ========== TOPIC CHECK (topic_checker.py) ==========
+    "topic_check": {
+        "message": "🤗 Праверка...",
+    },
+    
     # ========== KEYBOARDS (keyboards.py) ==========
     "keyboards": {
         # Main menu
@@ -96,6 +101,10 @@ MESSAGES = {
             "placeholder": "Абярыце групу...",
             "active_prefix": "✅",
             "inactive_prefix": "❌",
+            "prev": "◀️ Назад",
+            "next": "Наперад ▶️",
+            "cancel": "❌ Скасаванне",
+            "dot": ".",
         },
 
         "destinations": {
@@ -386,12 +395,13 @@ MESSAGES = {
                                "Усе сродкі пойдуць на аплату сервераў і развіццё праекта.\n\n"
                                "Абярыце суму:",
         "support_thank_you": "🙏 Шчыры дзякуй за падтрымку!",
-        "support_stars_sent": "Вы адправілі { $count } ⭐",
+        "support_stars_sent": "Вы адправілі {count} ⭐",
         "support_help_text": "Ваша дапамога вельмі каштоўная для развіцця MyAggryBot! 💙",
 
         "language_prompt": "<b>🌐 Абярыце мову</b>\n\n"
                            "English\n"
                            "Русский\n"
+                           "Українська\n"
                            "Беларуская",
         "language_changed": "✅ Мова зменена на {lang}",
         "language_en": "English",
