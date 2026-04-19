@@ -73,8 +73,6 @@ instance/
 # Scrapy stuff:
 .scrapy
 
-# Sphinx documentation
-docs/_build/
 
 # PyBuilder
 .pybuilder/
@@ -152,7 +150,6 @@ clear_db.py
 clear_redis.py
 debug_db.py
 redis_data.json
-План действий.md
 PROMPTS/
 run_cleanup.py
 tests/.pytest_cache/
@@ -173,11 +170,11 @@ bot.py
 cleaner.py
 monitor.py
 sender.py
-.env.local
 tools/
-docker-compose.yml
 QWEN.md
 session-analysis-mode.json
+connect.py
+.clinerules
 # Spyder project settings
 .spyderproject
 .spyproject

@@ -19,6 +19,7 @@ from core.models import TelegramAccount, UserPreferences
 from bot.keyboards import get_main_menu_inline
 from bot.keyboards.legal import get_consent_request_kb, get_legal_read_kb
 from bot.states import LegalStates
+from bot.services.legal_terms import get_legal_text_for_user
 from bot.utils.menu_message import (
     update_or_send_menu,
     clear_menu_message,
@@ -391,16 +392,18 @@ async def on_menu_refresh(callback: CallbackQuery, state: FSMContext, session: A
 # ========== LEGAL HANDLERS (GDPR consent) ==========
 
 @router.callback_query(F.data == "legal_read_terms")
-async def on_legal_read_terms(callback: CallbackQuery, state: FSMContext, get_text: callable):
+async def on_legal_read_terms(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
     """Обработчик кнопки "📄 Полные условия" - показывает документы"""
     await callback.answer()
 
-    # Читаем файл terms-privacy.md
-    try:
-        with open("docs/legal/terms-privacy.md", 'r', encoding='utf-8') as f:
-            doc_text = f.read()
-    except FileNotFoundError:
-        doc_text = get_text(['legal', 'legal_title']) + "\n\n⚠️ Документ временно недоступен."
+    # Получаем язык пользователя из БД с фоллбэком на en
+    stmt = select(UserPreferences).where(UserPreferences.user_id == callback.from_user.id)
+    result = await session.execute(stmt)
+    prefs = result.scalar_one_or_none()
+    user_lang = prefs.language if prefs else "en"
+
+    # Загружаем текст на языке пользователя через сервис (с фоллбэком)
+    doc_text = get_legal_text_for_user(user_lang)
 
     # Отправляем НОВОЕ сообщение с полным текстом (Markdown)
     await callback.message.answer(
@@ -447,16 +450,18 @@ async def on_consent_accept(
 
 
 @router.callback_query(F.data == "settings_legal_terms")
-async def on_settings_legal_terms(callback: CallbackQuery, state: FSMContext, get_text: callable):
+async def on_settings_legal_terms(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
     """Обработчик кнопки "📋 Условия и конфиденциальность" в настройках"""
     await callback.answer()
 
-    # Читаем файл terms-privacy.md
-    try:
-        with open("docs/legal/terms-privacy.md", 'r', encoding='utf-8') as f:
-            doc_text = f.read()
-    except FileNotFoundError:
-        doc_text = get_text(['legal', 'legal_title']) + "\n\n⚠️ Документ временно недоступен."
+    # Получаем язык пользователя из БД с фоллбэком на en
+    stmt = select(UserPreferences).where(UserPreferences.user_id == callback.from_user.id)
+    result = await session.execute(stmt)
+    prefs = result.scalar_one_or_none()
+    user_lang = prefs.language if prefs else "en"
+
+    # Загружаем текст на языке пользователя через сервис (с фоллбэком)
+    doc_text = get_legal_text_for_user(user_lang)
 
     # Обновляем существующее сообщение (как кнопка "Помощь")
     from bot.keyboards.legal import get_legal_terms_kb

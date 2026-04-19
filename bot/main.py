@@ -35,6 +35,7 @@ from core.parser.youtube_simple import get_parser as get_youtube_parser, close_p
 from core.models import UserPreferences
 from core.utils.i18n import create_i18n
 from core.tasks.dispatcher import TaskDispatcher, set_dispatcher
+from bot.services.legal_terms import preload_legal_docs
 
 # 👇 Middleware
 from bot.middlewares import DBSessionMiddleware
@@ -166,6 +167,10 @@ async def on_startup(bot: Bot):
             logger.warning("[WARN] Бот будет запущен, но возможны проблемы")
 
         await set_bot_commands(bot)
+
+        # 🔐 Preload legal documents for multi-language support
+        preload_legal_docs()
+        logger.info("[OK] Legal documents preloaded (multi-language support)")
 
         # ✅ ЗАПУСК ЧЕРЕЗ TASKDISPATCHER
         task_dispatcher = TaskDispatcher(bot)

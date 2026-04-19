@@ -156,6 +156,7 @@ MESSAGES = {
         # Settings
         "settings_menu": {
             "language": "🌐 Language",
+            "support": "💎 Support the Author",
             "legal_terms": "📋 Terms & Privacy",
             "delete_data": "🗑️ Delete my data",
             "back": "← Back",
@@ -240,6 +241,14 @@ MESSAGES = {
                          "• Register topics via /plus\n"
                          "• Manage via Admin Panel",
         "activ_error": "<b>❌ Error activating group:</b>\n<code>{error}</code>",
+        "activ_only_supergroup": "<b>❌ Regular groups are not supported!</b>\n\n"
+                                 "The bot works <b>only with SUPERGROUPS (Forums)</b> Telegram.\n\n"
+                                 "<b>How to fix:</b>\n"
+                                 "1. Open group settings\n"
+                                 "2. Enable the 'Topics' (Forums) option\n"
+                                 "3. The group will automatically become a supergroup\n"
+                                 "4. Re-enter the /activ command\n\n"
+                                 "⚠️ After enabling topics, this action cannot be undone.",
         
         # ✅ НОВЫЙ КЛЮЧ: сообщение в ЛС после активации группы
         "activ_success_dm": "<b>✅ Group activated!</b>\n\n"
@@ -271,6 +280,12 @@ MESSAGES = {
                                  "First activate the group with the <code>/activ</code> command",
         "plus_not_admin": "❌ Only administrators can register topics.",
         "plus_error": "❌ Error checking permissions: {error}",
+        "plus_enter_name": "<b>📝 Enter topic name:</b>\n\n"
+                           "For example: <i>Chat, News, Discussion</i>\n\n"
+                           "Send the name as text or click 'Cancel' to abort.",
+        "plus_name_too_short": "❌ Topic name must be at least 1 character.",
+        "plus_name_too_long": "❌ Topic name must be no more than 128 characters.",
+        "plus_cancelled": "❌ Topic registration cancelled.",
         "plus_already_exists": "<b>✅ Topic already registered!</b>\n\n"
                                "• <b>📛 Name:</b> {name}\n"
                                "• <b>🆔 Topic ID:</b> {thread_id}\n"
@@ -278,6 +293,8 @@ MESSAGES = {
         "plus_not_found": "⚠️ <b>Could not find topic name in database.</b>\n\n"
                           "Topic will be registered as <b>'{name}'</b>.\n"
                           "The name will update automatically on next rename.",
+        "plus_prompt_simple": "📝 <b>Enter topic name</b>",
+        "plus_prompt_placeholder": "Example: Chat, News, Discussion...",
         "plus_success": "<b>✅ Topic registered!</b>\n\n"
                         "• <b>📛 Name:</b> {name}\n"
                         "• <b>🆔 Topic ID:</b> {thread_id}\n"
@@ -302,6 +319,7 @@ MESSAGES = {
                       "• @ОбманутыйРоссиянин (Cyrillic)\n\n"
                       "<i>YouTube channels — by link or @username</i>",
         "add_cancelled": "❌ Addition cancelled.",
+        "source_checking": "🔍 <b>Checking source...</b>",
         
         # YouTube processing
         "youtube_invalid_link": "<b>❌ This is a video link, not a channel</b>\n\n"
@@ -426,8 +444,10 @@ MESSAGES = {
         "support_menu_prompt": "If you find the bot useful, you can thank the developer.\n\n"
                                "All funds will go towards server costs and project development.\n\n"
                                "Choose an amount:",
+        "support_invoice_title": "💎 Support the Author",
+        "support_invoice_description": "Thanks for supporting MyAggryBot development",
         "support_thank_you": "🙏 Thank you so much for your support!",
-        "support_stars_sent": "You sent { $count } ⭐",
+        "support_stars_sent": "You sent {count} ⭐",
         "support_help_text": "Your help is very valuable for MyAggryBot development! 💙",
 
         # Language

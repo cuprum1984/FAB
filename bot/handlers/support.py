@@ -42,18 +42,16 @@ async def on_support_menu(callback: CallbackQuery, state: FSMContext, get_text):
         state: FSM состояние
         get_text: Функция локализации
     """
-    text = (
-        "💎 <b>Поддержать автора</b>\n\n"
-        "Если бот приносит вам пользу, вы можете отблагодарить разработчика.\n\n"
-        "Все средства пойдут на оплату серверов и развитие проекта.\n\n"
-        "Выберите сумму:"
-    )
+    # Используем локализованные строки для заголовка и описания меню
+    title = get_text(['settings', 'support_menu_title'])
+    prompt = get_text(['settings', 'support_menu_prompt'])
+    text = f"{title}\n\n{prompt}"
 
     await update_or_send_menu(
         bot=callback.bot,
         chat_id=callback.from_user.id,
         text=text,
-        keyboard=get_support_menu_kb(),
+        keyboard=get_support_menu_kb(get_text),
         state=state
     )
     await callback.answer()
@@ -138,7 +136,7 @@ async def on_support_back(callback: CallbackQuery, state: FSMContext, get_text):
 @router.callback_query(
     F.data.in_({"support_100", "support_250", "support_500", "support_2500"})
 )
-async def on_support_select(callback: CallbackQuery, bot: Bot, state: FSMContext):
+async def on_support_select(callback: CallbackQuery, bot: Bot, state: FSMContext, get_text):
     """
     Выставление счёта в Stars.
 
@@ -146,6 +144,7 @@ async def on_support_select(callback: CallbackQuery, bot: Bot, state: FSMContext
         callback: CallbackQuery объект
         bot: Объект бота
         state: FSM состояние
+        get_text: Функция локализации
     """
     star_count = SUPPORT_AMOUNTS.get(callback.data)
     if not star_count:
@@ -159,10 +158,14 @@ async def on_support_select(callback: CallbackQuery, bot: Bot, state: FSMContext
     })
 
     try:
+        # Используем локализованные строки для invoice
+        invoice_title = get_text(['settings', 'support_invoice_title'])
+        invoice_description = get_text(['settings', 'support_invoice_description'])
+        
         await bot.send_invoice(
             chat_id=callback.from_user.id,
-            title="💎 Поддержка автора",
-            description="Благодарность за разработку MyAggryBot",
+            title=invoice_title,
+            description=invoice_description,
             payload=f"donate_{star_count}",
             provider_token="",  # ⭐ ПУСТОЙ для Stars!
             currency="XTR",     # ⭐ Валюта Stars
@@ -217,12 +220,12 @@ async def on_success_payment(message: Message, bot: Bot, state: FSMContext, get_
         except Exception as e:
             logger.warning(f"⚠️ Не удалось удалить старое сообщение: {e}")
 
-    # 2. Сообщение с благодарностью
-    thank_text = (
-        f"🙏 <b>Огромное спасибо за поддержку!</b>\n\n"
-        f"Вы отправили <b>{star_count} ⭐</b>\n\n"
-        f"Ваша помощь очень ценна для развития MyAggryBot! 💙"
-    )
+    # 2. Сообщение с благодарностью — используем локализованные строки
+    thank_title = get_text(['settings', 'support_thank_you'])
+    stars_sent = get_text(['settings', 'support_stars_sent']).format(count=star_count)
+    help_text = get_text(['settings', 'support_help_text'])
+    
+    thank_text = f"{thank_title}\n\n{stars_sent}\n\n{help_text}"
 
     thank_msg = await message.answer(thank_text)
     logger.info(f"✅ Отправлено сообщение с благодарностью: {thank_msg.message_id}")

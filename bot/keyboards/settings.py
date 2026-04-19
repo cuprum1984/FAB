@@ -27,7 +27,7 @@ def get_settings_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(
-            text="💎 Поддержать автора",
+            text=get_text(['keyboards', 'settings_menu', 'support']),
             callback_data="settings_support"
         )
     )
