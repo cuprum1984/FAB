@@ -91,6 +91,16 @@ async def process_channel_username(message: Message, state: FSMContext, session:
         await cancel_add_channel_flow(callback=None, bot=bot, chat_id=message.from_user.id, state=state, session=session, get_text=get_text)
         return
 
+    # 🔍 Отправляем сообщение о проверке источника (обновляем текущее)
+    await update_or_send_menu(
+        bot=bot,
+        chat_id=message.from_user.id,
+        text=get_text(['sources', 'source_checking']),
+        keyboard=get_cancel_kb(get_text),
+        state=state,
+        fallback_message=message
+    )
+
     # ========== 🔍 ПРОВЕРЯЕМ, НЕ YOUTUBE ЛИ ЭТО ==========
     is_youtube = False
 

@@ -250,19 +250,11 @@ async def cmd_my_topics(message: Message, session: AsyncSession, get_text: calla
     groups = await get_user_groups(user_id, session, only_existing_topics=True)
 
     if not groups:
-        # Используем sendMessageDraft для эффекта "печатает..."
-        try:
-            await bot.send_message_draft(
-                chat_id=user_id,
-                text=get_text(['admin', 'mytopics_no_groups']),
-                parse_mode="HTML"
-            )
-        except Exception:
-            # Fallback: обычное сообщение
-            await message.answer(
-                get_text(['admin', 'mytopics_no_groups']),
-                parse_mode="HTML"
-            )
+        # ✅ Отправляем обычное сообщение (убрано send_message_draft)
+        await message.answer(
+            get_text(['admin', 'mytopics_no_groups']),
+            parse_mode="HTML"
+        )
         return
 
     text = get_text(['admin', 'mytopics_title'])
@@ -297,16 +289,8 @@ async def cmd_my_topics(message: Message, session: AsyncSession, get_text: calla
 
     text += get_text(['admin', 'mytopics_total'], count=total_topics)
 
-    # Используем sendMessageDraft для эффекта "печатает..."
-    try:
-        await bot.send_message_draft(
-            chat_id=user_id,
-            text=text,
-            parse_mode="HTML"
-        )
-    except Exception:
-        # Fallback: обычное сообщение
-        await message.answer(text, parse_mode="HTML")
+    # ✅ Отправляем обычное сообщение (убрано send_message_draft)
+    await message.answer(text, parse_mode="HTML")
 
 @router.message(Command("plus"))
 async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, get_text: callable):
@@ -402,8 +386,8 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
         logger.info(f"✅ Тема обновлена: '{existing_topic.topic_name}' (ID: {thread_id})")
         return  # ✅ ВАЖНО: не создаём дубликат
 
-    # ===== 7. ЕСЛИ ТЕМЫ НЕТ В БД - ОТПРАВЛЯЕМ ЧЕРНОВИК С КНОПКАМИ =====
-    # Сохраняем данные для следующего шага
+    # ===== 7. ЕСЛИ ТЕМЫ НЕТ В БД - ОТПРАВЛЯЕМ ПРОСТОЙ ЗАПРОС НАЗВАНИЯ =====
+    # Сохраняем данные для следующего шага (убираем лишние поля)
     await state.update_data({
         'chat_id': chat_id,
         'thread_id': thread_id,
@@ -413,46 +397,24 @@ async def cmd_plus_topic(message: Message, bot: Bot, session: AsyncSession, stat
         'is_general': is_general
     })
 
-    # Отправляем черновик с инлайн-кнопками
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_topic:{thread_id}"),
-        InlineKeyboardButton(text="⚙️ Ввести название", callback_data=f"enter_topic_name:{thread_id}")
-    )
-    
+    # ✅ УПРОЩЁННЫЙ ЗАПРОС: без кнопок, только текст с placeholder (обычное сообщение)
     draft_text = (
-        f"⚠️ <b>Не удалось найти название темы в базе.</b>\n\n"
-        f"Тема будет зарегистрирована как <b>'Topic {thread_id}'</b>.\n"
-        f"При следующем переименовании название обновится автоматически.\n\n"
-        f"<b>Действия:</b>"
+        f"{get_text(['admin', 'plus_not_found'], name=f'Topic {thread_id}')}\n\n"
+        f"{get_text(['admin', 'plus_prompt_simple'])}\n"
+        f"<i>{get_text(['admin', 'plus_prompt_placeholder'])}</i>"
     )
     
-    try:
-        # Используем send_message_draft для топика
-        draft_msg = await bot.send_message_draft(
-            chat_id=chat_id,
-            message_thread_id=thread_id,
-            text=draft_text,
-            reply_markup=builder.as_markup()
-        )
-        
-        logger.info(f"✅ Черновик отправлен в топик {chat_id}:{thread_id}")
-        
-        # Переходим в состояние ожидания
-        await state.set_state(AdminPanel.waiting_for_topic_name)
-        
-    except Exception as e:
-        logger.warning(f"⚠️ Не удалось отправить черновик: {e}. Использую обычное сообщение.")
-        # Fallback: обычное сообщение
-        await message.answer(
-            draft_text,
-            parse_mode="HTML",
-            reply_markup=builder.as_markup()
-        )
-        await state.set_state(AdminPanel.waiting_for_topic_name)
+    # ✅ Отправляем обычное сообщение с запросом названия (без reply_markup)
+    await message.answer(
+        draft_text,
+        parse_mode="HTML"
+        # ✅ НЕТ reply_markup - просто ждём ввод текста от пользователя
+    )
+    
+    logger.info(f"✅ Запрос названия отправлен в топик {chat_id}:{thread_id}")
+    
+    # Переходим в состояние ожидания названия темы (пользователь просто вводит текст)
+    await state.set_state(AdminPanel.waiting_for_topic_name)
 
 
 # ========== ОБРАБОТКА ВВОДА НАЗВАНИЯ ТЕМЫ ==========
@@ -501,7 +463,7 @@ async def process_topic_name_input(message: Message, bot: Bot, session: AsyncSes
 
         thread_display = "General" if is_general else thread_id
 
-        # ✅ ОБНОВЛЯЕМ ЧЕРНОВИК вместо создания нового сообщения
+        # ✅ Отправляем финальное сообщение о регистрации темы (обычное сообщение)
         final_text = (
             f"✅ <b>Тема зарегистрирована!</b>\n\n"
             f"• <b>📛 Название:</b> {html.escape(topic_name)}\n"
@@ -509,20 +471,11 @@ async def process_topic_name_input(message: Message, bot: Bot, session: AsyncSes
             f"• <b>🔗 Идентификатор:</b> <code>{topic.topic_identifier}</code>"
         )
         
-        # Пытаемся обновить черновик
-        try:
-            await message.edit_text(
-                final_text,
-                parse_mode="HTML",
-                reply_markup=None
-            )
-        except Exception as edit_error:
-            # Если не удалось обновить (сообщение уже удалено/изменено)
-            logger.warning(f"⚠️ Не удалось обновить черновик: {edit_error}")
-            await message.answer(
-                final_text,
-                parse_mode="HTML"
-            )
+        # ✅ Используем обычное сообщение вместо попытки редактирования черновика
+        await message.answer(
+            final_text,
+            parse_mode="HTML"
+        )
         
         logger.info(f"✅ Зарегистрирована тема: {topic_name} (thread_id: {thread_id_to_save})")
         

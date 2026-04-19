@@ -156,6 +156,7 @@ MESSAGES = {
         # Settings
         "settings_menu": {
             "language": "🌐 Language",
+            "support": "💎 Support the Author",
             "legal_terms": "📋 Terms & Privacy",
             "delete_data": "🗑️ Delete my data",
             "back": "← Back",
@@ -292,6 +293,8 @@ MESSAGES = {
         "plus_not_found": "⚠️ <b>Could not find topic name in database.</b>\n\n"
                           "Topic will be registered as <b>'{name}'</b>.\n"
                           "The name will update automatically on next rename.",
+        "plus_prompt_simple": "📝 <b>Enter topic name</b>",
+        "plus_prompt_placeholder": "Example: Chat, News, Discussion...",
         "plus_success": "<b>✅ Topic registered!</b>\n\n"
                         "• <b>📛 Name:</b> {name}\n"
                         "• <b>🆔 Topic ID:</b> {thread_id}\n"
@@ -316,6 +319,7 @@ MESSAGES = {
                       "• @ОбманутыйРоссиянин (Cyrillic)\n\n"
                       "<i>YouTube channels — by link or @username</i>",
         "add_cancelled": "❌ Addition cancelled.",
+        "source_checking": "🔍 <b>Checking source...</b>",
         
         # YouTube processing
         "youtube_invalid_link": "<b>❌ This is a video link, not a channel</b>\n\n"
@@ -440,6 +444,8 @@ MESSAGES = {
         "support_menu_prompt": "If you find the bot useful, you can thank the developer.\n\n"
                                "All funds will go towards server costs and project development.\n\n"
                                "Choose an amount:",
+        "support_invoice_title": "💎 Support the Author",
+        "support_invoice_description": "Thanks for supporting MyAggryBot development",
         "support_thank_you": "🙏 Thank you so much for your support!",
         "support_stars_sent": "You sent {count} ⭐",
         "support_help_text": "Your help is very valuable for MyAggryBot development! 💙",
