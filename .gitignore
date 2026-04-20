@@ -1,6 +1,7 @@
 __pycache__/
 .pytest_cache
 .env
+.env.local
 .venv
 env/
 venv/
@@ -48,4 +49,4 @@ connect.py
 .clinerules
 .cursorignore
 .cursorindexingignore
-
+GUIDELINES.md
