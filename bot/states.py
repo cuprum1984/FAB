@@ -53,11 +53,6 @@ class MySources(StatesGroup):
     viewing_sources = State()   # Просмотр списка источников
 
 
-class Overview(StatesGroup):
-    """Состояния для обзора источников (/mytopics)"""
-    viewing = State()  # Просмотр обзора
-
-
 class LegalStates(StatesGroup):
     """Состояния для GDPR согласия"""
     waiting_consent = State()  # Ожидание согласия пользователя

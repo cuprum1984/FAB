@@ -21,6 +21,7 @@ from core.services.destination_service import get_user_groups
 from core.utils.topic_checker import verify_user_topics
 from bot.states import MySources
 from bot.utils.menu_message import update_or_send_menu, MENU_MESSAGE_ID_KEY, delete_menu_message_with_delay
+from bot.messages import format_sources_page
 
 logger = logging.getLogger(__name__)
 
@@ -205,13 +206,13 @@ async def _process_my_sources_internal(user_id: int, message: Message, session: 
     logger.info(f"✅ Сохранено в состояние: user_id={user_id}, groups={len(groups)}, sources={total_sources}")
 
     # Формируем текст обзора (как в my_overview.py)
-    text = format_sources_overview_page(overview_data, 0, total_sources)
+    text = format_sources_page(overview_data, 0, total_sources)
 
-    # Импортируем функцию формирования клавиатуры для обзора
-    from bot.keyboards import get_overview_kb
+    # Импортируем функцию формирования клавиатуры для групп
+    from bot.keyboards import get_groups_inline_kb
 
-    # Формируем клавиатуру для навигации по обзору
-    keyboard = get_overview_kb(overview_data, page=0, get_text=get_text)
+    # Формируем клавиатуру для навигации по группам
+    keyboard = get_groups_inline_kb(groups=groups, page=0, page_size=5, get_text=get_text, back_callback="back_to_main")
 
     # Отправляем/обновляем сообщение через update_or_send_menu
     await update_or_send_menu(
@@ -224,83 +225,6 @@ async def _process_my_sources_internal(user_id: int, message: Message, session: 
 
     await state.set_state(MySources.viewing_groups)
 
-
-def format_sources_overview_page(overview_data: List[Dict], page: int, total_sources: int) -> str:
-    """Форматировать страницу обзора источников (до 5 групп на странице)"""
-    groups_per_page = 5
-    total_pages = (len(overview_data) + groups_per_page - 1) // groups_per_page if overview_data else 1
-    page = max(0, min(page, total_pages - 1))
-
-    start_idx = page * groups_per_page
-    end_idx = min(start_idx + groups_per_page, len(overview_data))
-    page_groups = overview_data[start_idx:end_idx]
-
-    text = f"<b>📚 Мои источники</b>\n\n"
-    text += f"<b>📊 Найдено групп:</b> {len(overview_data)}\n"
-    text += f"<b>📊 Всего источников:</b> {total_sources}\n\n"
-
-    for group in page_groups:
-        text += f"<b>👥 {group['chat_title']}</b> ({len(group['topics'])})\n"
-
-        for topic in group["topics"]:
-            topic_name = topic["topic_name"]
-            if topic["is_general"]:
-                topic_name = "💬 General"
-            else:
-                topic_name = f"🗨️ {topic_name}"
-
-            sources_count = topic["sources_count"]
-            text += f"   <b>{topic_name}</b> ({sources_count})\n"
-
-            for source in topic["sources"]:
-                icon = "📺" if source["source_type"] == "youtube" else "📰"
-                # Обрезаем длинные имена
-                name = source["name"][:25] + "..." if len(source["name"]) > 25 else source["name"]
-                text += f"       {icon} {name}\n"
-
-        text += "\n"
-
-    if total_pages > 1:
-        text += f"<i>Страница {page + 1}/{total_pages}</i>"
-
-    return text
-
-
-# ========== НАВИГАЦИЯ ПО СТРАНИЦАМ ОБЗОРА ==========
-@router.callback_query(F.data.startswith("overview_page:"))
-async def on_overview_page_change(callback: CallbackQuery, state: FSMContext, get_text: callable):
-    """Навигация по страницам обзора источников"""
-    await callback.answer()
-
-    page = int(callback.data.split(":", 1)[1])
-    data = await state.get_data()
-    overview_data = data.get("overview_data", [])
-    total_sources = data.get("total_sources", 0)
-
-    if not overview_data:
-        return
-
-    total_pages = (len(overview_data) + 4) // 5  # 5 групп на страницу
-    if page < 0 or page >= total_pages:
-        return
-
-    # Обновляем страницу в состоянии
-    await state.update_data(overview_page=page)
-
-    # Формируем текст для новой страницы
-    text = format_sources_overview_page(overview_data, page, total_sources)
-
-    # Обновляем клавиатуру
-    from bot.keyboards import get_overview_kb
-    keyboard = get_overview_kb(overview_data, page=page, get_text=get_text)
-
-    await update_or_send_menu(
-        bot=callback.bot,
-        chat_id=callback.from_user.id,
-        text=text,
-        keyboard=keyboard,
-        state=state
-    )
 
 
 # ========== ВЫБОР ГРУППЫ ==========
@@ -911,7 +835,7 @@ async def on_sources_page_change(callback: CallbackQuery, session: AsyncSession,
 
 # ========== НАЗАД ==========
 @router.callback_query(F.data.startswith("list_back:"))
-async def on_back_pressed(callback: CallbackQuery, state: FSMContext, bot: Bot, get_text: callable):
+async def on_back_pressed(callback: CallbackQuery, session: AsyncSession, state: FSMContext, bot: Bot, get_text: callable):
     """Навигация назад"""
     where_to = callback.data.split(":")[1]
     data = await state.get_data()
@@ -1017,12 +941,12 @@ async def on_back_pressed(callback: CallbackQuery, state: FSMContext, bot: Bot, 
             )
 
         # Формируем текст дерева
-        text = format_sources_overview_page(overview_data, 0, total_sources)
+        text = format_sources_page(overview_data, 0, total_sources)
 
-        # Импортируем функцию формирования клавиатуры
-        from bot.keyboards import get_overview_kb
+        # Импортируем функцию формирования клавиатуры для групп
+        from bot.keyboards import get_groups_inline_kb
 
-        keyboard = get_overview_kb(overview_data, page=0, get_text=get_text)
+        keyboard = get_groups_inline_kb(groups=groups, page=0, page_size=5, get_text=get_text, back_callback="back_to_main")
 
         await update_or_send_menu(
             bot=callback.bot,

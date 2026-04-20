@@ -315,15 +315,6 @@ async def on_menu_sources(callback: CallbackQuery, state: FSMContext, session: A
     )
 
 
-@router.callback_query(F.data == "menu_overview")
-async def on_menu_overview(callback: CallbackQuery, state: FSMContext, session: AsyncSession, get_text: callable):
-    """Обработчик кнопки "Обзор" — показывает все группы, топики и источники """
-    await callback.answer()
-    
-    # Запускаем процесс обзора (обновляет текущее message_id)
-    from bot.handlers.my_overview import start_overview
-    await start_overview(callback.bot, callback.from_user.id, session, state, get_text)
-
 
 @router.callback_query(F.data == "menu_help")
 async def on_menu_help(callback: CallbackQuery, state: FSMContext, get_text: callable):

@@ -1,4 +1,4 @@
-# bot/keyboards/main_menu.py
+# bot/keyboards/main_menu.py - UPDATED: Removed "Обзор" button
 """Главное меню."""
 from typing import Callable, Dict, Any, List
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -26,7 +26,6 @@ def get_main_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
         # Получаем тексты из локализации
         btn_add = get_text(['keyboards', 'main_menu', 'add_channel'])
         btn_sources = get_text(['keyboards', 'main_menu', 'my_sources'])
-        btn_overview = get_text(['keyboards', 'main_menu', 'overview'])
         btn_settings = get_text(['keyboards', 'main_menu', 'settings'])
         btn_help = get_text(['keyboards', 'main_menu', 'help'])
         btn_refresh = get_text(['keyboards', 'main_menu', 'refresh'])
@@ -34,21 +33,19 @@ def get_main_menu_inline(get_text: GetTextFunc) -> InlineKeyboardMarkup:
         logger.error(f"Ошибка локализации меню: {e}")
         # Запасной вариант (Fallback)
         btn_add, btn_sources = "✚ Добавить", "📚 Источники"
-        btn_overview = "📰 Обзор"
         btn_settings, btn_help = "⚙️ Настройки", "❓ Помощь"
         btn_refresh = "🔄 Обновить"
 
-    # Строим сетку кнопок 2x3
+    # Строим сетку кнопок (без Обзора)
     builder.row(
         InlineKeyboardButton(text=btn_add, callback_data="menu_add"),
         InlineKeyboardButton(text=btn_sources, callback_data="menu_sources")
     )
     builder.row(
-        InlineKeyboardButton(text=btn_overview, callback_data="menu_overview"),
-        InlineKeyboardButton(text=btn_help, callback_data="menu_help")
+        InlineKeyboardButton(text=btn_help, callback_data="menu_help"),
+        InlineKeyboardButton(text=btn_settings, callback_data="menu_settings")
     )
     builder.row(
-        InlineKeyboardButton(text=btn_settings, callback_data="menu_settings"),
         InlineKeyboardButton(text=btn_refresh, callback_data="menu_refresh")
     )
 

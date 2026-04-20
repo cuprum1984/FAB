@@ -3,7 +3,6 @@
 
 from bot.keyboards.main_menu import get_main_menu_inline, GetTextFunc
 from bot.keyboards.my_sources import (
-    get_overview_kb,
     get_topics_tree_kb,
 )
 from bot.keyboards.admin import (
@@ -29,7 +28,6 @@ from bot.keyboards.destinations import (
 
 __all__ = [
     'get_main_menu_inline',
-    'get_overview_kb',
     'get_topics_tree_kb',
     'get_admin_panel_menu_inline',
     'get_groups_inline_kb',

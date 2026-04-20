@@ -77,7 +77,6 @@ MESSAGES = {
         "main_menu": {
             "add_channel": "✚ Добавить канал",
             "my_sources": "📚 Мои источники",
-            "overview": "📰 Обзор",
             "settings": "⚙️ Настройки",
             "admin_panel": "👨‍💼 Админ-панель",
             "help": "❓ Помощь",
