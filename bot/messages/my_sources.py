@@ -3,12 +3,12 @@
 from typing import List, Dict
 
 
-def format_sources_overview_page(overview_data: List[Dict], page: int, total_sources: int) -> str:
+def format_sources_page(groups: List[Dict], page: int, total_sources: int) -> str:
     """
     Форматировать страницу обзора источников (до 5 групп на странице).
     
     Args:
-        overview_data: Список групп с топиками и источниками
+        groups: Список групп с топиками и источниками
         page: Текущая страница (0-based)
         total_sources: Общее количество источников
 
@@ -16,15 +16,15 @@ def format_sources_overview_page(overview_data: List[Dict], page: int, total_sou
         Отформатированный текст с HTML-разметкой
     """
     groups_per_page = 5
-    total_pages = (len(overview_data) + groups_per_page - 1) // groups_per_page if overview_data else 1
+    total_pages = (len(groups) + groups_per_page - 1) // groups_per_page if groups else 1
     page = max(0, min(page, total_pages - 1))
 
     start_idx = page * groups_per_page
-    end_idx = min(start_idx + groups_per_page, len(overview_data))
-    page_groups = overview_data[start_idx:end_idx]
+    end_idx = min(start_idx + groups_per_page, len(groups))
+    page_groups = groups[start_idx:end_idx]
 
     text = f"<b>📚 Мои источники</b>\n\n"
-    text += f"<b>📊 Найдено групп:</b> {len(overview_data)}\n"
+    text += f"<b>📊 Найдено групп:</b> {len(groups)}\n"
     text += f"<b>📊 Всего источников:</b> {total_sources}\n\n"
 
     for group in page_groups:
