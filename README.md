@@ -12,6 +12,7 @@ A Telegram bot that aggregates content from Telegram channels and YouTube into f
 
 ### Что делает бот
 
+- Работает **только в супергруппах** с включённым форумом (regular groups не поддерживаются)
 - Подписывает форумные группы на Telegram-каналы и YouTube-каналы
 - Автоматически переслает новые посты в указанные топики
 - Поддерживает несколько групп, топиков и источников
@@ -134,6 +135,7 @@ FAB/
 
 ### What it does
 
+- Works **only in supergroups** with forums enabled (regular groups are not supported)
 - Subscribes forum groups to Telegram channels and YouTube channels
 - Automatically forwards new posts into specified topics
 - Supports multiple groups, topics, and sources
