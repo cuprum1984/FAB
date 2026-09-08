@@ -12,11 +12,16 @@ import logging
 import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+import ssl
+import certifi
 import aiohttp
 from bs4 import BeautifulSoup
 from core.settings import settings
 from core.security import URLSecurity
 from core.utils.html_sanitizer import sanitize_telegram_html
+
+# Доверенные корневые сертификаты (cross-platform)
+_SSL_CTX = ssl.create_default_context(cafile=certifi.where())
 
 
 logger = logging.getLogger(__name__)
@@ -55,7 +60,7 @@ async def get_new_posts(
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, timeout=10) as response:
+            async with session.get(url, headers=headers, timeout=10, ssl=_SSL_CTX) as response:
                 if response.status != 200:
                     logger.error(f"❌ HTTP {response.status} для @{username}")
                     return []

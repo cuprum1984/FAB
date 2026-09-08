@@ -10,9 +10,14 @@ Rate limiting:
 import aiohttp
 import asyncio
 import logging
+import ssl
+import certifi
 from bs4 import BeautifulSoup
 from core.settings import settings
 from core.services.rate_limiter import get_rate_limiter
+
+# Доверенные корневые сертификаты (cross-platform)
+_SSL_CTX = ssl.create_default_context(cafile=certifi.where())
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +49,8 @@ async def check_channel_exists(username: str) -> tuple[bool, str]:
             async with session.get(
                 url,
                 headers={"User-Agent": settings.USER_AGENT},
-                timeout=settings.REQUEST_TIMEOUT
+                timeout=settings.REQUEST_TIMEOUT,
+                ssl=_SSL_CTX
             ) as resp:
                 if resp.status == 200:
                     rate_limiter.record_success("telegram", username)
@@ -94,7 +100,8 @@ async def get_channel_title(username: str) -> str | None:
             async with session.get(
                 url,
                 headers={"User-Agent": settings.USER_AGENT},
-                timeout=settings.REQUEST_TIMEOUT
+                timeout=settings.REQUEST_TIMEOUT,
+                ssl=_SSL_CTX
             ) as resp:
                 if resp.status == 200:
                     rate_limiter.record_success("telegram", username)
