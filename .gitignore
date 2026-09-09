@@ -17,7 +17,10 @@ tree_proj.md
 check_and_fix_missing_assignments.py
 check_user.py
 clear_db.py
-docs/
+docs/*
+!docs/legal/
+
+
 clear_redis.py
 debug_db.py
 redis_data.json
