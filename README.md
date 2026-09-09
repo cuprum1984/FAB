@@ -1,4 +1,5 @@
 # MyAggryBot
+@MyAggryBot - test on TG
 
 Telegram-бот для агрегации контента из Telegram-каналов и YouTube в форумные группы.
 
