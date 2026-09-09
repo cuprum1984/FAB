@@ -18,7 +18,20 @@ check_and_fix_missing_assignments.py
 check_user.py
 clear_db.py
 docs/*
+!docs/README.md
+!docs/CHANGELOG.md
+!docs/overview.md
+!docs/01-general/
+!docs/02-handlers/
+!docs/03-keyboards/
+!docs/04-services/
+!docs/05-parsers/
+!docs/06-database/
+!docs/07-testing/
+!docs/08-i18n/
+!docs/09-versions/
 !docs/legal/
+
 
 
 clear_redis.py
