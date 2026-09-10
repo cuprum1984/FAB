@@ -31,6 +31,7 @@ docs/*
 !docs/08-i18n/
 !docs/09-versions/
 !docs/legal/
+!docs/memory/
 
 
 
